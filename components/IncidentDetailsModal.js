@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   Modal,
   View,
@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Colors from "../constants/colors";
-import { markArrived, markContained } from "../constants/api";
+import { markArrived, markContained, confirmDispatchAction, confirmDispatchClearance } from "../constants/api";
 import ConfirmModal from "./ConfirmModal";
 
 function statusPalette(status) {
@@ -55,11 +55,40 @@ export default function IncidentDetailsModal({
   const [containConfirm, setContainConfirm] = useState(false);
   const [arriving, setArriving] = useState(false);
   const [arriveConfirm, setArriveConfirm] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionConfirm, setActionConfirm] = useState(null);
+  const clearanceSubmission = useRef(null);
+  const canConfirmAction = isTeamLeader || dispatch?.is_driver;
+  const actionTime = value => value ? new Date(value).toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit',
+  }) : 'Not recorded';
 
-  // The crew must be on scene before the fire can be marked contained, so the
-  // arrival action takes the footer while the dispatch is still en route.
+  const saveAction = async () => {
+    if (actionBusy || !actionConfirm || !token || !dispatch?.dispatch_id) return;
+    setActionBusy(true);
+    try {
+      if (actionConfirm === 'clearance') {
+        if (clearanceSubmission.current?.dispatchId !== dispatch.dispatch_id) {
+          clearanceSubmission.current = { dispatchId: dispatch.dispatch_id, body: {
+            occurred_at: new Date().toISOString(),
+            idempotency_key: `clearance-${dispatch.dispatch_id}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          } };
+        }
+        await confirmDispatchClearance(token, dispatch.dispatch_id, clearanceSubmission.current.body);
+      } else await confirmDispatchAction(token, dispatch.dispatch_id, actionConfirm);
+      setActionConfirm(null);
+      await onArrived?.();
+    } catch (err) {
+      setActionConfirm(null);
+      Alert.alert('Dispatch action', err.message || 'Could not save action. Retry when connected.');
+      await onArrived?.();
+    } finally { setActionBusy(false); }
+  };
+
+  // Personal arrival stays independent of the truck/dispatch arrival.
   const dispatchStatus = dispatch?.dispatch_status ?? null;
-  const enRoute = dispatchStatus === "dispatched" || dispatchStatus === "en_route";
+  const ownStatus = dispatch?.personnel_status ?? dispatchStatus;
+  const enRoute = ownStatus === "dispatched" || ownStatus === "en_route";
 
   const fireStatus = incident?.fire_status ?? null;
   const isContained = fireStatus === "contained" || fireStatus === "closed";
@@ -105,7 +134,7 @@ export default function IncidentDetailsModal({
     } catch (err) {
       setArriveConfirm(false);
       Alert.alert("Incident", err.message ?? "Could not mark arrival.");
-      // A 409 means a teammate already marked arrival; pull the fresh status.
+      // Refresh after a rejected or superseded confirmation.
       await onArrived?.();
     } finally {
       setArriving(false);
@@ -202,6 +231,21 @@ export default function IncidentDetailsModal({
             <Row label="Structure" value={incident?.fire_structure_type} />
             <Row label="Coordinates" value={coords} />
             <Row label="Reported" value={reportedAt} />
+            <Row label="Acknowledged · PHT" value={actionTime(dispatch?.acknowledged_at)} />
+            <Row label="Departed · PHT" value={actionTime(dispatch?.departed_at)} />
+            <Row label="Team cleared · PHT" value={actionTime(dispatch?.cleared_at)} />
+            {isTeamLeader && dispatchStatus === 'on_scene' && !dispatch?.cleared_at && <TouchableOpacity style={styles.reportBtn} disabled={actionBusy || containing} onPress={() => setActionConfirm('clearance')}>
+              <Text style={styles.containBtnText}>Record Team Clearance</Text>
+            </TouchableOpacity>}
+            {enRoute && !isContained && canConfirmAction && <>
+              <Text style={styles.leaderHint}>Actions record server receipt time. Confirm when the action happens; delayed sends can affect measured durations.</Text>
+              {!dispatch?.acknowledged_at && <TouchableOpacity style={styles.reportBtn} disabled={actionBusy || arriving} onPress={() => setActionConfirm('acknowledge')}>
+                <Text style={styles.containBtnText}>Acknowledge Dispatch</Text>
+              </TouchableOpacity>}
+              {!dispatch?.departed_at && <TouchableOpacity style={styles.reportBtn} disabled={actionBusy || arriving} onPress={() => setActionConfirm('depart')}>
+                <Text style={styles.containBtnText}>{actionBusy ? 'Saving…' : 'Depart for Incident'}</Text>
+              </TouchableOpacity>}
+            </>}
           </ScrollView>
 
           {/* Bottom action */}
@@ -211,7 +255,7 @@ export default function IncidentDetailsModal({
                 style={styles.containBtn}
                 onPress={() => !arriving && setArriveConfirm(true)}
                 activeOpacity={0.85}
-                disabled={arriving}
+                disabled={arriving || actionBusy}
               >
                 <Text style={styles.containBtnText}>
                   {arriving ? "Marking..." : "Arrived on Scene"}
@@ -271,9 +315,19 @@ export default function IncidentDetailsModal({
       </View>
 
       <ConfirmModal
+        visible={actionConfirm != null}
+        title={actionConfirm === 'clearance' ? 'Record Team Clearance?' : actionConfirm === 'depart' ? 'Depart for Incident?' : 'Acknowledge Dispatch?'}
+        message={actionConfirm === 'clearance' ? 'Confirm all personnel and units in your dispatch are clear of this incident now. Command must verify every responding dispatch before confirming operation completion. This records clearance separately from filing your report.' : actionConfirm === 'depart' ? 'Confirm your team is departing now. An acknowledgement is recorded too if one is missing.' : 'Confirm your team has received the dispatch.'}
+        confirmLabel={actionConfirm === 'clearance' ? 'Confirm Clearance' : actionConfirm === 'depart' ? 'Confirm Departure' : 'Acknowledge'}
+        tone="primary"
+        busy={actionBusy}
+        onConfirm={saveAction}
+        onCancel={() => setActionConfirm(null)}
+      />
+      <ConfirmModal
         visible={arriveConfirm}
         title="Arrived on Scene?"
-        message="Confirm your team has reached the incident. Dispatchers will be notified and the arrival time is recorded."
+        message="Confirm you have reached the incident. This records your arrival. Truck arrival is confirmed only for a truck you are manning."
         confirmLabel="Confirm Arrival"
         tone="primary"
         busy={arriving}

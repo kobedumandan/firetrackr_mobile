@@ -148,7 +148,8 @@ function QuickTile({ icon, iconSet = "ion", label, sub, onPress, badge }) {
    and where. Everything about the live dispatch lives in this card. */
 function DispatchHero({ dispatch, incident, now, onDetails, onRoute }) {
   const contained = incident?.fire_status === "contained";
-  const ds = DISPATCH_LABEL[dispatch.dispatch_status] ?? { label: dispatch.dispatch_status, tone: "muted" };
+  const ownStatus = dispatch.personnel_status ?? dispatch.dispatch_status;
+  const ds = DISPATCH_LABEL[ownStatus] ?? { label: ownStatus, tone: "muted" };
   const place = incident?.fire_location_name || incident?.fire_address || "Incident location";
   const since = elapsed(dispatch.dispatch_at, now);
   const truck = dispatch.truck;
@@ -235,7 +236,7 @@ function StandbyHero({ station, shift }) {
 }
 
 export default function HomeScreen({ navigation }) {
-  const { user, status, token, refreshStatus, unreadAlerts, deviationState } = useAuth();
+  const { user, status, token, refreshStatus, unreadAlerts, deviationState, trackingState } = useAuth();
   const dispatch = status?.dispatch ?? null;
   const incident = dispatch?.incident ?? null;
   const isTeamLeader = dispatch?.is_team_leader ?? false;
@@ -252,16 +253,16 @@ export default function HomeScreen({ navigation }) {
     return () => clearInterval(id);
   }, [dispatch]);
 
-  // Location is only reported while a dispatch is active (see
-  // useLocationTracking), so the tile says so rather than claiming "Active".
-  const tracking = !dispatch
-    ? { value: "Idle", tone: "muted" }
+  const tracking = status?.tracking?.mode === 'off'
+    ? { value: "Off duty", tone: "muted" }
+    : !trackingState?.sharing
+    ? { value: trackingState?.reason === 'permission_denied' ? 'GPS denied' : 'Connecting', tone: 'amber' }
     : deviationState?.isDeviated
     ? { value: "Off Route", tone: "amber" }
-    : { value: "Live", tone: "green" };
+    : { value: trackingState?.mode === 'standby' ? 'Live · 30s' : "Live", tone: "green" };
 
   const duty = dispatch
-    ? DISPATCH_LABEL[dispatch.dispatch_status] ?? { label: "Dispatched", tone: "amber" }
+    ? DISPATCH_LABEL[dispatch.personnel_status ?? dispatch.dispatch_status] ?? { label: "Dispatched", tone: "amber" }
     : { label: "Standby", tone: "blue" };
 
   const loading = status === null;

@@ -11,6 +11,11 @@ const REFRESH_TYPES = new Set([
   'dispatch_rerouted',  // driver deviated and the whole route was rebuilt
   'incident_updated',   // status change, containment, new dispatch, etc.
   'incident_created',
+  'dispatch_acknowledged',
+  'dispatch_departed',
+  'dispatch_arrived',
+  'personnel_arrived',
+  'operational_times_updated',
 ]);
 
 const PING_MS      = 30_000; // keep-alive; backend replies "pong"

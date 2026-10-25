@@ -41,8 +41,8 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "FireGIS shares your location with the command center while you are on a dispatch.",
-          "locationAlwaysAndWhenInUsePermission": "FireGIS keeps sharing your location during a dispatch while the screen is off, so the command center can follow your team to the fire.",
+          "locationWhenInUsePermission": "FireGIS shares your location with the command center while you are on duty, including standby and active dispatches.",
+          "locationAlwaysAndWhenInUsePermission": "FireGIS shares your location while on duty even with the screen off: every 30 seconds on standby and more often during a dispatch. Sharing stops when you are off duty.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true,
           "isIosBackgroundLocationEnabled": true

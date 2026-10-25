@@ -2,145 +2,139 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as SecureStore from 'expo-secure-store';
 import { BASE_URL, authHeaders } from '../constants/api';
+import { trackingContext, validFix, fixPayload } from '../utils/trackingPolicy';
 
-/**
- * Background dispatch tracking.
- *
- * The foreground loop in useLocationTracking dies when the phone sleeps or the
- * responder switches to another app, which is exactly when they are driving to
- * a fire. This task runs under an Android foreground service (the persistent
- * "sharing location" notification), so updates keep flowing with the screen
- * off and even after the app is swiped away.
- *
- * The task can run headless, with no React tree and no AuthContext, so what it
- * needs (session token, dispatch id, cadence) is mirrored into SecureStore.
- * This module must be imported at app start (App.js) so defineTask runs before
- * the OS delivers a background event.
- */
 export const LOCATION_TASK = 'bfp-dispatch-location';
 const CONTEXT_KEY = 'bfp_tracking';
-
-let context = null;        // { token, dispatchId, intervalMs }
-let lastSentAt = 0;
+let context = null;
+let loaded = false;
+let generation = 0;
+let nativeOwner = false;
+let nativeInterval = null;
+let queue = Promise.resolve();
+let expiryTimer;
 let inFlight = false;
+let lastSentAt = 0;
+let lastSample = null;
 const listeners = new Set();
+const emit = value => listeners.forEach(fn => { try { fn(value); } catch { /* isolated subscriber */ } });
+const serialize = fn => { const work = queue.then(fn); queue = work.catch(() => {}); return work; };
+export function onTrackingResult(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
 async function loadContext() {
-  if (context) return context;
-  try {
-    const raw = await SecureStore.getItemAsync(CONTEXT_KEY);
-    context = raw ? JSON.parse(raw) : null;
-  } catch {
-    context = null;
+  if (!loaded) {
+    const version = generation;
+    const raw = await SecureStore.getItemAsync(CONTEXT_KEY).catch(() => null);
+    if (version === generation) {
+      try { context = raw ? JSON.parse(raw) : null; } catch { context = null; }
+      loaded = true;
+      nativeOwner = Boolean(context?.nativeOwner);
+    }
   }
   return context;
 }
 
-/** Subscribe to each server reply (deviation state) while the app is alive. */
-export function onTrackingResult(fn) {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
-}
-
-function emit(result) {
-  listeners.forEach((fn) => { try { fn(result); } catch { /* listener bug: ignore */ } });
-}
-
-TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
-  if (error) return;
-  const loc = data?.locations?.[data.locations.length - 1];
-  if (!loc) return;
-
-  const ctx = await loadContext();
-  if (!ctx) {
-    // Orphaned service (e.g. signed out while it was running): shut it down.
-    await stopBackgroundTracking();
-    return;
-  }
-
-  // Android may deliver faster than asked, or in batches; hold the cadence.
-  const now = Date.now();
-  if (inFlight || now - lastSentAt < ctx.intervalMs - 500) return;
-  inFlight = true;
-  lastSentAt = now;
-
-  try {
-    const res = await fetch(`${BASE_URL}/api/location/update`, {
-      method: 'POST',
-      headers: authHeaders(ctx.token),
-      body: JSON.stringify({
-        latitude:    loc.coords.latitude,
-        longitude:   loc.coords.longitude,
-        recorded_at: new Date(loc.timestamp).toISOString(),
-        dispatch_id: ctx.dispatchId,
-      }),
-    });
-    if (res.status === 401) {
-      // Session expired or revoked; nothing more this task can do.
-      await stopBackgroundTracking();
-      emit(null);
-      return;
-    }
-    if (!res.ok) return;
-    const body = await res.json();
-    if (body.status === 'dispatch_ended') {
-      await stopBackgroundTracking();
-      emit(null);
-      return;
-    }
-    emit(
-      body.deviation && body.connector_geojson
-        ? { isDeviated: true, connectorGeoJSON: body.connector_geojson }
-        : { isDeviated: false, connectorGeoJSON: null }
-    );
-  } catch {
-    /* offline: the next fix retries */
-  } finally {
-    inFlight = false;
-  }
-});
-
 export async function isBackgroundTrackingRunning() {
-  try {
-    return await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK);
-  } catch {
-    return false;
-  }
+  return Location.hasStartedLocationUpdatesAsync(LOCATION_TASK).catch(() => false);
 }
 
-/** Start (or re-tune) background updates for a dispatch. Idempotent. */
-export async function startBackgroundTracking({ token, dispatchId, intervalMs }) {
-  const prev = await loadContext();
-  context = { token, dispatchId, intervalMs };
-  try { await SecureStore.setItemAsync(CONTEXT_KEY, JSON.stringify(context)); }
-  catch { /* the in-memory copy still serves while the app is alive */ }
-
-  const running = await isBackgroundTrackingRunning();
-  if (running && prev?.intervalMs === intervalMs) return;
-  if (running) await Location.stopLocationUpdatesAsync(LOCATION_TASK);
-
+// Invalidate immediately, even if native startup or a network reply is pending.
+export function stopBackgroundTracking() {
+  generation += 1;
+  context = null;
+  loaded = true;
+  nativeOwner = false;
+  nativeInterval = null;
   lastSentAt = 0;
-  await Location.startLocationUpdatesAsync(LOCATION_TASK, {
-    accuracy: Location.Accuracy.High,
-    timeInterval: intervalMs,
-    distanceInterval: 0,
-    pausesUpdatesAutomatically: false,
-    activityType: Location.ActivityType.AutomotiveNavigation,
-    showsBackgroundLocationIndicator: true,
-    foregroundService: {
-      notificationTitle: 'FireGIS · Dispatch in progress',
-      notificationBody: 'Sharing your location with the command center.',
-      notificationColor: '#ff4d1a',
-      killServiceOnDestroy: false,
-    },
+  lastSample = null;
+  clearTimeout(expiryTimer);
+  emit({ sharing: false, reason: 'stopped' });
+  return serialize(async () => {
+    await SecureStore.deleteItemAsync(CONTEXT_KEY);
+    if (await isBackgroundTrackingRunning()) await Location.stopLocationUpdatesAsync(LOCATION_TASK);
   });
 }
 
-export async function stopBackgroundTracking() {
-  context = null;
-  lastSentAt = 0;
-  try { await SecureStore.deleteItemAsync(CONTEXT_KEY); } catch { /* non-fatal */ }
-  if (await isBackgroundTrackingRunning()) {
-    try { await Location.stopLocationUpdatesAsync(LOCATION_TASK); } catch { /* already stopped */ }
+export function configureTracking(token, tracking, background = false) {
+  const next = trackingContext(token, tracking);
+  if (!next) return stopBackgroundTracking();
+  if (context?.token !== token || context?.dispatchId !== next.dispatchId || context?.mode !== next.mode) {
+    generation += 1;
+    lastSentAt = 0;
+    lastSample = null;
   }
+  context = { ...next, nativeOwner: background };
+  loaded = true;
+  nativeOwner = background;
+  const version = generation;
+  clearTimeout(expiryTimer);
+  expiryTimer = setTimeout(() => {
+    if (version === generation && context?.expiresAt === next.expiresAt) {
+      stopBackgroundTracking().catch(() => {});
+      emit({ sharing: false, reason: 'eligibility_expired' });
+    }
+  }, Math.max(0, next.expiresAt - Date.now()));
+  return serialize(async () => {
+    if (version !== generation || !context) return;
+    await SecureStore.setItemAsync(CONTEXT_KEY, JSON.stringify(context));
+    const running = await isBackgroundTrackingRunning();
+    if (!background) {
+      if (running) await Location.stopLocationUpdatesAsync(LOCATION_TASK);
+      nativeInterval = null;
+      return;
+    }
+    if (running && nativeInterval === next.intervalMs) return;
+    if (running) await Location.stopLocationUpdatesAsync(LOCATION_TASK);
+    if (version !== generation || !context) return;
+    await Location.startLocationUpdatesAsync(LOCATION_TASK, {
+      accuracy: next.mode === 'standby' ? Location.Accuracy.Balanced : Location.Accuracy.High,
+      timeInterval: next.intervalMs, distanceInterval: 0, pausesUpdatesAutomatically: false,
+      activityType: Location.ActivityType.AutomotiveNavigation, showsBackgroundLocationIndicator: true,
+      foregroundService: { notificationTitle: 'FireGIS · On-duty location sharing',
+        notificationBody: 'Sharing your location with the command center while on duty.',
+        notificationColor: '#ff4d1a', killServiceOnDestroy: false },
+    });
+    nativeInterval = next.intervalMs;
+    if (version !== generation) { await Location.stopLocationUpdatesAsync(LOCATION_TASK); nativeInterval = null; }
+  });
 }
+
+export async function sendTrackingFix(fix, background = false) {
+  const ctx = await loadContext();
+  if (!ctx || !Number.isFinite(ctx.expiresAt) || Date.now() >= ctx.expiresAt) { await stopBackgroundTracking(); return; }
+  if (background !== nativeOwner || inFlight || !validFix(fix) || lastSample === fix.timestamp || Date.now() - lastSentAt < ctx.intervalMs - 300) return;
+  const version = generation;
+  inFlight = true;
+  lastSentAt = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(`${BASE_URL}/api/location/update`, {
+      method: 'POST', headers: authHeaders(ctx.token), body: JSON.stringify(fixPayload(fix, ctx)), signal: controller.signal,
+    });
+    if (version !== generation) return;
+    if (response.status === 401 || response.status === 403) {
+      await stopBackgroundTracking(); emit({ sharing: false, reason: 'session_or_assignment_rejected' }); return;
+    }
+    if (!response.ok) throw new Error('Location update failed');
+    const body = await response.json();
+    if (version !== generation) return;
+    // Renew and reconcile completion without depending on a mounted React tree.
+    if (body.tracking) await configureTracking(ctx.token, { ...body.tracking, client_received_at: Date.now() }, background);
+    else if (body.status === 'dispatch_ended') { await stopBackgroundTracking(); return; }
+    if (!context) return;
+    if (['ok', 'duplicate'].includes(body.status)) lastSample = fix.timestamp;
+    emit({ sharing: true, mode: context.mode, lastSentAt: ['ok', 'duplicate'].includes(body.status) ? Date.now() : null,
+      isDeviated: Boolean(body.deviation && body.connector_geojson), connectorGeoJSON: body.connector_geojson ?? null });
+  } catch {
+    if (version === generation) emit({ sharing: false, reason: 'reconnecting' });
+  } finally { clearTimeout(timeout); inFlight = false; }
+}
+
+TaskManager.defineTask(LOCATION_TASK, async ({ data, error }) => {
+  try {
+    if (error) { await stopBackgroundTracking(); emit({ sharing: false, reason: 'location_unavailable' }); return; }
+    const fix = data?.locations?.[data.locations.length - 1];
+    if (fix) await sendTrackingFix(fix, true);
+  } catch { await stopBackgroundTracking().catch(() => {}); }
+});

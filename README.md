@@ -1,5 +1,31 @@
 ## FireOPS Mobile App
 
+### On-duty tracking and response evidence (2026-10-24)
+
+The original mobile source now uses the backend's duty roster and renewable policy
+lease: 30-second standby updates, 3-second dispatched/en-route updates, and
+20-second on-scene updates. Sharing stops off duty, on logout or when permission or
+eligibility expires. Open the app at the start of the next shift to renew duty
+eligibility; automatic unattended next-shift wake-up is not guaranteed.
+
+The incident modal includes acknowledge/depart controls for assigned leaders and
+drivers and an on-scene team-clearance control for leaders. GPS payloads include
+accuracy and stable retry IDs. Native background timing, permission behavior and
+battery use still need physical-phone acceptance. See the sibling web checkout's
+[implementation/review guide](../firetrackr/documentation/capstone-objectives-implementation.md).
+
+Personal arrival is separate from vehicle arrival: another responder reaching the
+incident does not stop the truck. Vehicle arrival requires the assigned driver
+to be manning the truck when confirming arrival. The home card uses the signed-in
+personnel's own response status.
+
+Local policy/task and API checks (test files are local validation tooling and are
+not included in commits under the workspace's commit-writer policy):
+
+```powershell
+node --experimental-vm-modules --test tests/tracking.test.mjs tests/dispatchActions.test.mjs
+```
+
 This is the Mobile app, or the Personnel Module of FireOPS. Personnel can use the app to:
 - Be immediately notified about dispatches from Fire Station Command.
 - Be informed about current Dispatch and Fire Incident information, in Real-time.

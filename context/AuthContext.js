@@ -96,7 +96,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const { alerts, unreadAlerts, markAlertsRead, clearAlerts } =
-    useAlertLog({ token, status, deviationState });
+    useAlertLog({ token, status });
 
   const { pushPrefs, setPushPrefs, pushState, unregisterForLogout } =
     usePushNotifications({ token, onAlert: refreshStatus });

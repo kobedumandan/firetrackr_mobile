@@ -770,8 +770,6 @@ export default function RouteScreen() {
 
   const hasRoute = routeCoords.length >= 2;
 
-  const isDeviated = deviationState?.isDeviated ?? false;
-
   // HUD readouts derived from the live fix.
   const speedKmh = location?.speed != null && location.speed > 0
     ? Math.round(location.speed * 3.6)
@@ -803,15 +801,6 @@ export default function RouteScreen() {
             <Text style={styles.speedValue}>{speedKmh}</Text>
             <Text style={styles.speedUnit}>km/h</Text>
           </View>
-          {isDeviated && (
-            <View style={styles.deviationPill}>
-              <Ionicons name="warning" size={16} color={Colors.accentAmber ?? '#ffb020'} />
-              <View style={styles.bannerText}>
-                {/* <Text style={styles.bannerTitle}>Route</Text> */}
-                <Text style={styles.bannerSub}>Follow the amber path to the incident site.</Text>
-              </View>
-            </View>
-          )}
         </View>
         {remaining != null && (
           <View style={styles.distBox}>
@@ -887,33 +876,6 @@ export default function RouteScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.bgBase },
   map:  { flex: 1 },
-  deviationPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: 'rgba(10,12,15,0.82)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,176,32,0.25)',
-    flexShrink: 1,
-  },
-  bannerText: { flexShrink: 1 },
-  bannerTitle: {
-    fontFamily: 'AxiformaMedium',
-    fontSize: 14,
-    color: '#ffb020',
-    letterSpacing: -1,
-    // textTransform: 'uppercase',
-  },
-  bannerSub: {
-    fontFamily: 'AxiformaMedium',
-    fontSize: 9.8,
-    color: '#c8a040',
-    marginTop: 1,
-  },
-
   hud: {
     width: '100%',
     position: 'absolute',

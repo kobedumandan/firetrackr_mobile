@@ -1,15 +1,15 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
-  Animated,
   StyleSheet,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import Svg, { Path } from "react-native-svg";
 import IncidentDetailsModal from "../components/IncidentDetailsModal";
 import Colors from "../constants/colors";
 import { useAuth } from "../context/AuthContext";
@@ -69,31 +69,16 @@ const DISPATCH_LABEL = {
   on_scene: { label: "On Scene", tone: "blue" },
 };
 
-function Pill({ label, tone = "muted" }) {
+function Pill({ label, tone = "muted", onFire = false }) {
   const t = TONE[tone] ?? TONE.muted;
   return (
-    <View style={[styles.pill, { backgroundColor: t.bg }]}>
+    <View style={[styles.pill, { backgroundColor: onFire ? "#fff" : t.bg }]}>
       <Text style={[styles.pillText, { color: t.fg }]}>{label}</Text>
     </View>
   );
 }
 
-function PulseDot({ color }) {
-  const opacity = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.25, duration: 500, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 500, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity]);
-  return <Animated.View style={[styles.pulseDot, { backgroundColor: color, opacity }]} />;
-}
-
-function StatusTile({ icon, label, value, tone }) {
+function StatusTile({ icon, label, value, tone, bolt = false }) {
   const t = TONE[tone] ?? TONE.muted;
   return (
     <View style={styles.statusCard}>
@@ -104,7 +89,11 @@ function StatusTile({ icon, label, value, tone }) {
         </View>
       </View>
       <View style={styles.statusValueRow}>
-        <View style={[styles.statusDot, { backgroundColor: t.fg }]} />
+        {bolt ? (
+          <Svg width={14} height={14} viewBox="0 -960 960 960" fill={t.fg}>
+            <Path d="m422-232 207-248H469l29-227-185 267h139l-30 208ZM320-80l40-280H160l360-520h80l-40 320h240L400-80h-80Zm151-390Z" />
+          </Svg>
+        ) : null}
         <Text style={[styles.statusValue, { color: t.fg }]}>{value}</Text>
       </View>
     </View>
@@ -154,59 +143,73 @@ function DispatchHero({ dispatch, incident, now, onDetails, onRoute }) {
   const since = elapsed(dispatch.dispatch_at, now);
   const truck = dispatch.truck;
   const role = dispatch.is_team_leader ? "Team Leader" : dispatch.is_driver ? "Driver" : "Responder";
+  const onFire = !contained;
+  const fireText = onFire && styles.heroFireText;
 
   return (
     <View style={[styles.hero, contained ? styles.heroContained : styles.heroActive]}>
-      <View style={styles.heroTag}>
+      <View style={styles.heroHeading}>
+        <View style={[styles.heroEmergencyIcon, contained && styles.heroContainedIcon]}>
         {contained ? (
-          <Ionicons name="checkmark-circle" size={13} color={Colors.accentGreen} />
+          <Ionicons name="checkmark-circle" size={28} color={Colors.accentGreen} />
         ) : (
-          <PulseDot color={Colors.accentFire} />
+          <MaterialCommunityIcons name="alarm-light" size={28} color="#fff" />
         )}
-        <Text style={[styles.heroTagText, { color: contained ? Colors.accentGreen : Colors.accentFire }]}>
-          {contained ? "Fire Contained" : "Emergency Active"}
-        </Text>
-        {since && <Text style={styles.heroSince}>{since}</Text>}
+        </View>
+        <View style={styles.heroHeadingContent}>
+          <View style={styles.heroTag}>
+            {contained ? (
+              <Text style={[styles.heroTagText, { color: Colors.accentGreen }]}>Fire Contained</Text>
+            ) : (
+              <Text style={[styles.heroId, fireText]}>
+                {incident?.fire_id != null ? `Incident #${incident.fire_id}` : `DISP-${dispatch.dispatch_id}`}
+              </Text>
+            )}
+            {since && <Text style={[styles.heroSince, fireText]}>{since}</Text>}
+          </View>
+          {contained && (
+            <Text style={styles.heroId}>
+              {incident?.fire_id != null ? `Incident #${incident.fire_id}` : `DISP-${dispatch.dispatch_id}`}
+            </Text>
+          )}
+          <Text style={[styles.heroPlace, fireText]}>{place}</Text>
+          {incident?.fire_address && incident.fire_address !== place ? (
+            <Text style={[styles.heroAddr, fireText]}>{incident.fire_address}</Text>
+          ) : null}
+        </View>
       </View>
-
-      <Text style={styles.heroId}>DISP-{dispatch.dispatch_id}</Text>
-      <Text style={styles.heroPlace} numberOfLines={2}>{place}</Text>
-      {incident?.fire_address && incident.fire_address !== place ? (
-        <Text style={styles.heroAddr} numberOfLines={1}>{incident.fire_address}</Text>
-      ) : null}
 
       <View style={styles.heroPills}>
         {incident?.fire_severity && (
-          <Pill label={incident.fire_severity} tone={SEVERITY_TONE[incident.fire_severity] ?? "muted"} />
+          <Pill label={incident.fire_severity} tone={SEVERITY_TONE[incident.fire_severity] ?? "muted"} onFire={onFire} />
         )}
-        {incident?.fire_level && <Pill label={incident.fire_level} tone="muted" />}
-        <Pill label={ds.label} tone={ds.tone} />
+        {incident?.fire_level && <Pill label={incident.fire_level} tone="muted" onFire={onFire} />}
+        <Pill label={ds.label} tone={ds.tone} onFire={onFire} />
       </View>
 
-      <View style={styles.heroMeta}>
+      <View style={[styles.heroMeta, onFire && styles.heroFireBorder]}>
         <View style={styles.heroMetaItem}>
-          <Text style={styles.heroMetaLabel}>Dispatched</Text>
-          <Text style={styles.heroMetaValue}>{clockTime(dispatch.dispatch_at)}</Text>
+          <Text style={[styles.heroMetaLabel, fireText]}>Dispatched</Text>
+          <Text style={[styles.heroMetaValue, fireText]}>{clockTime(dispatch.dispatch_at)}</Text>
         </View>
-        <View style={styles.heroMetaDivider} />
+        <View style={[styles.heroMetaDivider, onFire && styles.heroFireDivider]} />
         <View style={styles.heroMetaItem}>
-          <Text style={styles.heroMetaLabel}>Truck</Text>
-          <Text style={styles.heroMetaValue} numberOfLines={1}>{truck?.truck_platenum ?? "—"}</Text>
+          <Text style={[styles.heroMetaLabel, fireText]}>Truck</Text>
+          <Text style={[styles.heroMetaValue, fireText]} numberOfLines={1}>{truck?.truck_platenum ?? "—"}</Text>
         </View>
-        <View style={styles.heroMetaDivider} />
+        <View style={[styles.heroMetaDivider, onFire && styles.heroFireDivider]} />
         <View style={styles.heroMetaItem}>
-          <Text style={styles.heroMetaLabel}>Role</Text>
-          <Text style={styles.heroMetaValue} numberOfLines={1}>{role}</Text>
+          <Text style={[styles.heroMetaLabel, fireText]}>Role</Text>
+          <Text style={[styles.heroMetaValue, fireText]} numberOfLines={1}>{role}</Text>
         </View>
       </View>
 
       <View style={styles.heroActions}>
-        <TouchableOpacity style={styles.btnPrimary} onPress={onDetails} activeOpacity={0.85}>
-          <Text style={styles.btnPrimaryText}>Incident Details</Text>
+        <TouchableOpacity style={[styles.btnPrimary, onFire && styles.heroFireButton]} onPress={onDetails} activeOpacity={0.85}>
+          <Text style={[styles.btnPrimaryText, onFire && styles.heroFireButtonText]}>Incident Details</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.btnSecondary} onPress={onRoute} activeOpacity={0.8}>
-          <Ionicons name="navigate" size={14} color={Colors.textPrimary} />
-          <Text style={styles.btnSecondaryText}>Route</Text>
+        <TouchableOpacity style={[styles.btnSecondary, onFire && styles.heroFireButton]} onPress={onRoute} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="Route">
+          <Ionicons name="navigate" size={14} color={onFire ? "#fff" : Colors.textPrimary} />
         </TouchableOpacity>
       </View>
     </View>
@@ -236,7 +239,7 @@ function StandbyHero({ station, shift }) {
 }
 
 export default function HomeScreen({ navigation }) {
-  const { user, status, token, refreshStatus, unreadAlerts, deviationState, trackingState } = useAuth();
+  const { user, status, token, refreshStatus, unreadAlerts, trackingState } = useAuth();
   const dispatch = status?.dispatch ?? null;
   const incident = dispatch?.incident ?? null;
   const isTeamLeader = dispatch?.is_team_leader ?? false;
@@ -257,8 +260,6 @@ export default function HomeScreen({ navigation }) {
     ? { value: "Off duty", tone: "muted" }
     : !trackingState?.sharing
     ? { value: trackingState?.reason === 'permission_denied' ? 'GPS denied' : 'Connecting', tone: 'amber' }
-    : deviationState?.isDeviated
-    ? { value: "Off Route", tone: "amber" }
     : { value: trackingState?.mode === 'standby' ? 'Live · 30s' : "Live", tone: "green" };
 
   const duty = dispatch
@@ -327,7 +328,7 @@ export default function HomeScreen({ navigation }) {
 
           {/* Status tiles */}
           <View style={styles.statusRow}>
-            <StatusTile icon="navigate" label="Tracking" value={tracking.value} tone={tracking.tone} />
+            <StatusTile icon="navigate" label="Tracking" value={tracking.value} tone={tracking.tone} bolt={trackingState?.sharing && status?.tracking?.mode !== 'off'} />
             <StatusTile icon="people" label="Duty Status" value={duty.label} tone={duty.tone} />
           </View>
 
@@ -525,7 +526,45 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   heroActive: {
-    borderColor: Colors.badgeFire.border,
+    backgroundColor: Colors.accentFire,
+    borderColor: Colors.accentFire,
+  },
+  heroFireText: {
+    color: "#fff",
+  },
+  heroFireBorder: {
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  heroFireDivider: {
+    backgroundColor: "rgba(255,255,255,0.3)",
+  },
+  heroFireButton: {
+    backgroundColor: Colors.bgBase,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  heroFireButtonText: {
+    color: "#fff",
+  },
+  heroHeading: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  heroEmergencyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "rgba(16,16,17,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroContainedIcon: {
+    backgroundColor: Colors.accentGreenDim,
+  },
+  heroHeadingContent: {
+    flex: 1,
+    minWidth: 0,
   },
   heroContained: {
     borderColor: Colors.badgeGreen.border,
@@ -541,14 +580,10 @@ const styles = StyleSheet.create({
   },
   heroTag: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     gap: 7,
-    marginBottom: 10,
-  },
-  pulseDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    marginBottom: 6,
   },
   heroTagText: {
     fontFamily: "AxiformaMedium",
@@ -653,12 +688,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: Colors.bgHover,
   },
-  btnSecondaryText: {
-    fontFamily: "AxiformaMedium",
-    fontSize: 12.8,
-    color: Colors.textPrimary,
-    letterSpacing: -0.2,
-  },
   standbyRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -736,11 +765,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
   },
   statusValue: {
     fontFamily: "AxiformaMedium",

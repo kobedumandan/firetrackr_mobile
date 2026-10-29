@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import Colors from "../constants/colors";
 import { markArrived, markContained, confirmDispatchAction, confirmDispatchClearance } from "../constants/api";
 import ConfirmModal from "./ConfirmModal";
+import { nextDispatchAction } from "../utils/dispatchActions";
 
 function statusPalette(status) {
   switch ((status || "").toLowerCase()) {
@@ -65,6 +66,12 @@ export default function IncidentDetailsModal({
 
   const saveAction = async () => {
     if (actionBusy || !actionConfirm || !token || !dispatch?.dispatch_id) return;
+    if (actionConfirm !== 'clearance' && (
+      !canConfirmAction || isContained || actionConfirm !== nextAction
+    )) {
+      setActionConfirm(null);
+      return;
+    }
     setActionBusy(true);
     try {
       if (actionConfirm === 'clearance') {
@@ -92,6 +99,10 @@ export default function IncidentDetailsModal({
 
   const fireStatus = incident?.fire_status ?? null;
   const isContained = fireStatus === "contained" || fireStatus === "closed";
+  const nextAction = nextDispatchAction(dispatch);
+  const actionLabel = nextAction === 'acknowledge' ? 'Acknowledge Dispatch'
+    : nextAction === 'depart' ? 'Depart for Incident' : 'Arrived on Scene';
+  const canTakeNextAction = nextAction === 'arrive' || canConfirmAction;
   // The report can only be filed while the fire is contained (not yet closed),
   // and only by the team leader — filing it closes the incident.
   const canReport = fireStatus === "contained" && isTeamLeader;
@@ -125,7 +136,11 @@ export default function IncidentDetailsModal({
   };
 
   const confirmArrive = async () => {
-    if (!token || !dispatch?.dispatch_id) return;
+    if (!token || !dispatch?.dispatch_id || arriving || actionBusy) return;
+    if (nextAction !== 'arrive' || isContained) {
+      setArriveConfirm(false);
+      return;
+    }
     setArriving(true);
     try {
       await markArrived(token, dispatch.dispatch_id);
@@ -237,30 +252,38 @@ export default function IncidentDetailsModal({
             {isTeamLeader && dispatchStatus === 'on_scene' && !dispatch?.cleared_at && <TouchableOpacity style={styles.reportBtn} disabled={actionBusy || containing} onPress={() => setActionConfirm('clearance')}>
               <Text style={styles.containBtnText}>Record Team Clearance</Text>
             </TouchableOpacity>}
-            {enRoute && !isContained && canConfirmAction && <>
-              <Text style={styles.leaderHint}>Actions record server receipt time. Confirm when the action happens; delayed sends can affect measured durations.</Text>
-              {!dispatch?.acknowledged_at && <TouchableOpacity style={styles.reportBtn} disabled={actionBusy || arriving} onPress={() => setActionConfirm('acknowledge')}>
-                <Text style={styles.containBtnText}>Acknowledge Dispatch</Text>
-              </TouchableOpacity>}
-              {!dispatch?.departed_at && <TouchableOpacity style={styles.reportBtn} disabled={actionBusy || arriving} onPress={() => setActionConfirm('depart')}>
-                <Text style={styles.containBtnText}>{actionBusy ? 'Saving…' : 'Depart for Incident'}</Text>
-              </TouchableOpacity>}
-            </>}
           </ScrollView>
 
           {/* Bottom action */}
           <View style={styles.footer}>
             {enRoute && !isContained ? (
+              <>
+              <Text style={styles.leaderHint}>
+                {nextAction === 'acknowledge' ? 'Step 1 of 3 · Acknowledge'
+                  : nextAction === 'depart' ? 'Step 2 of 3 · Depart'
+                  : 'Step 3 of 3 · Arrive'}
+              </Text>
+              {canTakeNextAction ? (
               <TouchableOpacity
                 style={styles.containBtn}
-                onPress={() => !arriving && setArriveConfirm(true)}
+                onPress={() => nextAction === 'arrive'
+                  ? setArriveConfirm(true) : setActionConfirm(nextAction)}
                 activeOpacity={0.85}
                 disabled={arriving || actionBusy}
               >
                 <Text style={styles.containBtnText}>
-                  {arriving ? "Marking..." : "Arrived on Scene"}
+                  {arriving || actionBusy ? "Saving..." : actionLabel}
                 </Text>
               </TouchableOpacity>
+              ) : (
+                <Text style={styles.leaderHint}>
+                  {nextAction === 'acknowledge'
+                    ? 'Waiting for the team leader or driver to acknowledge the dispatch.'
+                    : 'Waiting for the team leader or driver to confirm departure.'}
+                </Text>
+              )}
+              <Text style={styles.leaderHint}>Confirm when the action happens. Times are recorded when received by the server.</Text>
+              </>
             ) : isContained ? (
               <>
                 <View style={[styles.containBtn, styles.containedDone]}>
@@ -317,7 +340,7 @@ export default function IncidentDetailsModal({
       <ConfirmModal
         visible={actionConfirm != null}
         title={actionConfirm === 'clearance' ? 'Record Team Clearance?' : actionConfirm === 'depart' ? 'Depart for Incident?' : 'Acknowledge Dispatch?'}
-        message={actionConfirm === 'clearance' ? 'Confirm all personnel and units in your dispatch are clear of this incident now. Command must verify every responding dispatch before confirming operation completion. This records clearance separately from filing your report.' : actionConfirm === 'depart' ? 'Confirm your team is departing now. An acknowledgement is recorded too if one is missing.' : 'Confirm your team has received the dispatch.'}
+        message={actionConfirm === 'clearance' ? 'Confirm all personnel and units in your dispatch are clear of this incident now. Command must verify every responding dispatch before confirming operation completion. This records clearance separately from filing your report.' : actionConfirm === 'depart' ? 'Confirm your team is departing for the incident now.' : 'Confirm your team has received the dispatch.'}
         confirmLabel={actionConfirm === 'clearance' ? 'Confirm Clearance' : actionConfirm === 'depart' ? 'Confirm Departure' : 'Acknowledge'}
         tone="primary"
         busy={actionBusy}

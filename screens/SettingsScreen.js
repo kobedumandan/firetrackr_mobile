@@ -50,7 +50,9 @@ function profileDisplayName(user) {
 }
 
 function avatarInitial(user) {
-  return (user?.last_name ?? user?.first_name ?? '?').charAt(0).toUpperCase();
+  const first = (user?.first_name ?? '').trim();
+  const last = (user?.last_name ?? '').trim();
+  return `${first.charAt(0)}${last.charAt(0)}`.toUpperCase() || '?';
 }
 
 export default function SettingsScreen() {
@@ -334,18 +336,18 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 13,
     backgroundColor: Colors.accentFire,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarInitial: {
-    fontFamily: 'AxiformaBlack',
-    fontSize: 22,
+    fontFamily: 'AxiformaMedium',
+    fontSize: 14,
     color: '#fff',
-    letterSpacing: -0.5,
+    letterSpacing: 0.3,
   },
   profileInfo: {
     flex: 1,

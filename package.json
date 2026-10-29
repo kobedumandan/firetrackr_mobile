@@ -11,7 +11,7 @@
   "dependencies": {
     "@expo-google-fonts/barlow-condensed": "*",
     "@expo-google-fonts/share-tech-mono": "*",
-    "@expo/vector-icons": "^14.0.0",
+    "@expo/vector-icons": "~14.0.4",
     "@react-navigation/bottom-tabs": "^6.6.1",
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.11.0",
@@ -26,7 +26,7 @@
     "expo-status-bar": "~2.0.0",
     "expo-task-manager": "~12.0.6",
     "react": "18.3.1",
-    "react-native": "0.76.3",
+    "react-native": "0.76.9",
     "react-native-maps": "1.18.0",
     "react-native-safe-area-context": "4.12.0",
     "react-native-screens": "~4.4.0",

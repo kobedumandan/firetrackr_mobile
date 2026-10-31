@@ -4,6 +4,7 @@ import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useDeviceLocation } from '../hooks/useDeviceLocation';
+import { useRoadSnapping } from '../hooks/useRoadSnapping';
 import { remainingAlongRoute, formatDistance } from '../utils/geo';
 import { setTruckManning } from '../constants/api';
 import ConfirmModal from '../components/ConfirmModal';
@@ -202,12 +203,22 @@ function buildMapHtml({
       var dt  = lastFrameMs ? (now - lastFrameMs) / 1000 : 0;
       lastFrameMs = now;
 
+      if (activeRoad && now - activeRoad.matchedAt > 5000) {
+        activeRoad = null;
+        followingRoute = false;
+        drSpeed = 0;
+        if (lastRawPosition) {
+          target.lng = lastRawPosition.lng;
+          target.lat = lastRawPosition.lat;
+        }
+      }
+
       // Dead reckoning: between GPS fixes, push the target forward along the
       // route at the last known speed so the puck keeps gliding instead of
       // freezing until the next fix. dt is capped so a stalled or backgrounded
       // loop can't teleport the puck on resume. Below ~0.5 m/s we treat it as
       // parked and hold position (avoids creep from noisy near-zero speeds).
-      if (hasUserLocation && drSpeed > 0.5 && fullRoute.length > 1) {
+      if (hasUserLocation && followingRoute && drSpeed > 0.5 && fullRoute.length > 1) {
         advanceTargetAlongRoute(drSpeed * Math.min(dt, 0.5));
       }
 
@@ -219,6 +230,26 @@ function buildMapHtml({
 
       puckBearing = lerpAngle(puckBearing, target.bearing, 0.2);
 
+      // Project the eased marker too: interpolation can otherwise cut across
+      // corners. Only follow/trim the planned path after matching this road to
+      // it; a nearby parallel road must never pull the marker onto the plan.
+      if (hasUserLocation && followingRoute && fullRoute.length > 1) {
+        var snap = snapToRoute(current.lng, current.lat);
+        if (snap && snap.d <= 60) {
+          current.lng = snap.point[0];
+          current.lat = snap.point[1];
+          applyTrim(snap);
+          var bNext = routeBearings[Math.min(snap.i + 1, routeBearings.length - 1)];
+          target.bearing = lerpAngle(routeBearings[snap.i], bNext, snap.t);
+        }
+      } else if (hasUserLocation && activeRoad) {
+        var roadPoint = projectToSeg([current.lng, current.lat], activeRoad.segment[0], activeRoad.segment[1]);
+        if (roadPoint.d <= 60) {
+          current.lng = roadPoint.point[0];
+          current.lat = roadPoint.point[1];
+        }
+      }
+
       if (userMarker) {
         userMarker.setLngLat([current.lng, current.lat]);
         // setRotation() rewrites the element's transform, so only touch it once
@@ -226,21 +257,6 @@ function buildMapHtml({
         if (Math.abs(((puckBearing - lastPuckBearing + 540) % 360) - 180) > 0.5) {
           userMarker.setRotation(puckBearing);
           lastPuckBearing = puckBearing;
-        }
-      }
-
-      // Snap the eased position onto the route every frame so (a) the line trims
-      // smoothly in lockstep with the gliding puck instead of in GPS-fix-sized
-      // jumps, and (b) the camera heading follows the route's own direction,
-      // which kills the spinning caused by noisy GPS-derived bearings. Blend
-      // toward the next segment's bearing (weighted by how far along this segment
-      // we are) so turns are eased into rather than snapped.
-      if (hasUserLocation && fullRoute.length > 1) {
-        var snap = snapToRoute(current.lng, current.lat);
-        if (snap && snap.d <= 60) {
-          applyTrim(snap);
-          var bNext = routeBearings[Math.min(snap.i + 1, routeBearings.length - 1)];
-          target.bearing = lerpAngle(routeBearings[snap.i], bNext, snap.t);
         }
       }
 
@@ -375,6 +391,7 @@ function buildMapHtml({
       setRoute(${routeJson});
       if (ANIMATE_FLOW) animateFlow();
       requestAnimationFrame(frame);
+      post('mapReady');
     });
 
     // Leave follow mode when the user manually drives the camera. originalEvent
@@ -401,6 +418,10 @@ function buildMapHtml({
     var drIndex       = 0;  // segment the dead-reckon cursor (target) sits on
     var drSpeed       = 0;  // m/s from the latest fix; drives between-fix motion
     var lastFrameMs   = 0;  // previous frame time, for the dead-reckon dt
+    var activeRoad    = null; // short-lived nearest-road match, independent of the plan
+    var latestRoad    = null;
+    var followingRoute = false;
+    var lastRawPosition = null;
     function setRoute(coords) {
       fullRoute = coords || [];
       // Precompute each segment's compass bearing once, so the per-frame camera
@@ -415,6 +436,9 @@ function buildMapHtml({
       lastTrimPoint = null;
       drIndex       = 0;
       drSpeed       = 0;
+      followingRoute = false;
+      // A new plan takes effect even if the device is currently stationary.
+      if (lastRawPosition) placeUser(lastRawPosition.lat, lastRawPosition.lng, latestRoad);
       var src = map.getSource('route');
       if (src) src.setData(lineFeature(fullRoute));
       if (fullRoute.length < 2) return;
@@ -511,6 +535,47 @@ function buildMapHtml({
       return best;
     }
 
+    function placeUser(lat, lng, road) {
+      activeRoad = null;
+      var point = [lng, lat];
+      if (road && Date.now() - road.matchedAt <= 5000 &&
+          road.queryPoint && geoDist(lng, lat, road.queryPoint[0], road.queryPoint[1]) <= 60 &&
+          Array.isArray(road.segment) && road.segment.length === 2) {
+        var projected = projectToSeg(point, road.segment[0], road.segment[1]);
+        if (projected.d <= 60) {
+          activeRoad = road;
+          point = projected.point;
+        }
+      }
+      target.lng = point[0];
+      target.lat = point[1];
+      var anchor = anchorSnap(point[0], point[1]);
+      followingRoute = Boolean(anchor && anchor.d <= 8);
+      if (followingRoute) {
+        target.lng = anchor.point[0];
+        target.lat = anchor.point[1];
+        drIndex = anchor.i;
+      } else {
+        drSpeed = 0;
+      }
+    }
+
+    function alignToRoad(heading) {
+      if (followingRoute || !activeRoad) return;
+      var segment = activeRoad.segment;
+      var roadBearing = geoBearing(segment[0][0], segment[0][1], segment[1][0], segment[1][1]);
+      var reference = heading != null && heading >= 0 ? heading : target.bearing;
+      var delta = Math.abs(((roadBearing - reference + 540) % 360) - 180);
+      target.bearing = delta <= 90 ? roadBearing : (roadBearing + 180) % 360;
+    }
+
+    function setRoadMatch(road) {
+      latestRoad = road;
+      if (!lastRawPosition) return;
+      placeUser(lastRawPosition.lat, lastRawPosition.lng, road);
+      alignToRoad(lastGpsHeading);
+    }
+
     // mergePoint is [lng, lat] where the branch rejoins the dispatch route, or
     // null when it never converges (an independent approach to the incident).
     var mergeMarker = null;
@@ -535,7 +600,9 @@ function buildMapHtml({
     // coords already [lng, lat]. heading deg (0=N, cw) or null. speed m/s or null.
     var lastFix      = null; // previous { lng, lat } used to derive travel direction
     var lastSpeedFix = null; // previous { lng, lat, ms } used to estimate ground speed
+    var lastGpsHeading = null;
     function setUserLocation(lat, lng, heading, speed) {
+      lastGpsHeading = heading;
       target.zoom  = speedZoom(speed);
       target.pitch = speedPitch(speed);
 
@@ -553,25 +620,15 @@ function buildMapHtml({
       var fixSpeed = (speed != null && speed > 0) ? speed : measured;
       drSpeed = Math.max(0, Math.min(35, drSpeed * 0.4 + fixSpeed * 0.6));
 
-      // Anchor the target to the route and arm dead reckoning. Snapping the fix
-      // onto the line (when within 60 m) keeps the puck riding the route and
-      // gives a clean cursor to advance from between fixes; off route we drop
-      // dead reckoning and head straight to the real position.
-      var anchor = anchorSnap(lng, lat);
-      if (anchor && anchor.d <= 60) {
-        target.lng = anchor.point[0];
-        target.lat = anchor.point[1];
-        drIndex    = anchor.i;
-      } else {
-        target.lng = lng;
-        target.lat = lat;
-        drSpeed    = 0;
-      }
+      // Match to the actual nearby road first, whether or not it belongs to the
+      // plan. Keep raw fixes separate for movement and backend deviation checks.
+      lastRawPosition = { lng: lng, lat: lat };
+      placeUser(lat, lng, latestRoad);
 
       // Off-route fallback heading, from displacement between fixes. While on the
       // route this is overridden every frame by the route-tangent heading in
-      // frame(); it only takes effect when the user has strayed off the line
-      // (snap.d > 60 m). Hold an anchor fix and advance it only once travel
+      // frame(); it takes effect when the position no longer matches the plan.
+      // Hold an anchor fix and advance it only once travel
       // exceeds ~3 m, so parked GPS jitter doesn't spin the map.
       if (lastFix) {
         var moved = geoDist(lastFix.lng, lastFix.lat, lng, lat);
@@ -583,6 +640,8 @@ function buildMapHtml({
         lastFix = { lng: lng, lat: lat };
         if (heading != null && heading >= 0) target.bearing = heading; // initial hint
       }
+
+      alignToRoad(heading);
 
       if (!hasUserLocation) {
         // Snap immediately on the first fix so we don't ease in from Panabo.
@@ -640,6 +699,8 @@ export default function RouteScreen() {
   const webViewRef = useRef(null);
   const { status, station, deviationState, token, refreshStatus } = useAuth();
   const location = useDeviceLocation();
+  const roadMatch = useRoadSnapping(location, token);
+  const [mapReadyVersion, setMapReadyVersion] = useState(0);
   const [following, setFollowing] = useState(true);
   const [manningBusy, setManningBusy] = useState(false);
   const [manningConfirm, setManningConfirm] = useState(false);
@@ -662,10 +723,12 @@ export default function RouteScreen() {
   // status for a beat before the backend tears it down. Drop the route locally
   // the moment the fire reads "closed" so every route line clears from the map.
   const isClosed = incident?.fire_status === 'closed';
+  const personnelRouteWkt = !isManning ? dispatch?.personnel_route_wkt : null;
+  const activeRouteWkt = personnelRouteWkt || dispatch?.route_wkt;
 
   const routeCoords = useMemo(
-    () => (isClosed ? [] : parseWkt(dispatch?.route_wkt)),
-    [dispatch?.route_wkt, isClosed],
+    () => (isClosed ? [] : parseWkt(activeRouteWkt)),
+    [activeRouteWkt, isClosed],
   );
 
   const center = (fireLat != null && fireLng != null)
@@ -695,7 +758,7 @@ export default function RouteScreen() {
     if (!webViewRef.current) return;
     // Clear the reroute connector too once the incident is closed — there is no
     // active route left to deviate from.
-    if (!isClosed && deviationState?.isDeviated && deviationState.connectorGeoJSON?.coordinates) {
+    if (!isClosed && !personnelRouteWkt && deviationState?.isDeviated && deviationState.connectorGeoJSON?.coordinates) {
       // GeoJSON coordinates are already [lng, lat] — MapLibre uses the same order.
       // merge_point is a foreign member the backend adds when the branch
       // converges onto the dispatch route; null means it never does.
@@ -708,7 +771,7 @@ export default function RouteScreen() {
     } else {
       webViewRef.current.injectJavaScript(`setConnector([], null); true;`);
     }
-  }, [deviationState, isClosed]);
+  }, [deviationState, isClosed, personnelRouteWkt, mapReadyVersion]);
 
   // Push route updates into the already-loaded map without remounting the
   // WebView. Manning/unmanning swaps route_wkt; injecting redraws the line
@@ -720,7 +783,12 @@ export default function RouteScreen() {
     webViewRef.current?.injectJavaScript(
       `setRoute(${JSON.stringify(routeCoords)}); true;`
     );
-  }, [routeCoords]);
+  }, [routeCoords, mapReadyVersion]);
+
+  // Updating a display match must not count as another GPS sample for speed.
+  useEffect(() => {
+    webViewRef.current?.injectJavaScript(`setRoadMatch(${JSON.stringify(roadMatch)}); true;`);
+  }, [roadMatch, mapReadyVersion]);
 
   // Follow the device: recenter on the user pin and rotate the map heading-up.
   useEffect(() => {
@@ -731,10 +799,11 @@ export default function RouteScreen() {
     webViewRef.current.injectJavaScript(
       `setUserLocation(${latitude}, ${longitude}, ${h}, ${s}); true;`
     );
-  }, [location]);
+  }, [location, mapReadyVersion]);
 
   const handleMessage = (event) => {
     if (event.nativeEvent.data === 'userInteracted') setFollowing(false);
+    if (event.nativeEvent.data === 'mapReady') setMapReadyVersion(version => version + 1);
   };
 
   const handleRecenter = () => {

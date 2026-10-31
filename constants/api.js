@@ -23,6 +23,16 @@ export function authHeaders(token) {
   return { ...API_HEADERS, Authorization: `Bearer ${token}` };
 }
 
+// Display-only match against the same road network used to calculate routes.
+export async function snapToRoad(token, latitude, longitude, signal) {
+  const res = await fetch(`${BASE_URL}/api/mobile/road-snap?lat=${latitude}&lon=${longitude}`, {
+    headers: authHeaders(token), signal,
+  });
+  if (!res.ok) throw new Error('Road matching unavailable');
+  const body = await res.json();
+  return body.snapped ?? null;
+}
+
 // Driver claims/releases manning (driving) the dispatched truck.
 export async function setTruckManning(token, dispatchId, manning) {
   const res = await fetch(`${BASE_URL}/api/dispatch/${dispatchId}/truck-manning`, {

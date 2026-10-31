@@ -9,6 +9,7 @@ import { WS_URL, WS_HEADERS } from '../constants/api';
 const REFRESH_TYPES = new Set([
   'route_updated',      // dispatcher picked / recomputed the route
   'dispatch_rerouted',  // driver deviated and the whole route was rebuilt
+  'dispatch_deviation', // this responder's individual approach was recalculated
   'incident_updated',   // status change, containment, new dispatch, etc.
   'incident_created',
   'dispatch_acknowledged',

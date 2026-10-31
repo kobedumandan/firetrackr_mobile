@@ -1,5 +1,31 @@
 ## FireOPS Mobile App
 
+### Road snapping and recalculated navigation (2026-10-30)
+
+The Route screen matches the personnel marker to a nearby road on the backend's
+routing network, including roads outside the assigned route and when no dispatch
+is active. `GET /api/mobile/road-snap?lat=...&lon=...` requires a personnel account
+and matches within 60 metres. The map projects fresh fixes onto the returned road
+segment between requests; moving matches are requested at most once per second,
+stationary matches refresh after three seconds, and matches expire after five.
+Matching pauses in the background. Offline, expired, or out-of-network matches
+fall back to GPS; only positions within eight metres of the navigation path can
+use route following. Original GPS coordinates and accuracy still go to tracking
+and deviation detection.
+
+Non-manning personnel follow their own `personnel_route_wkt` when available.
+Manning drivers follow the truck's selected route. `dispatch_deviation` and
+`dispatch_rerouted` events refresh status so recalculated paths reach the map;
+the backend confirms deviation beyond 25 metres using two accepted fixes at most
+30 seconds apart, each with accuracy of 25 metres or better, and rejoins within
+10 metres. Restart the backend and reload the app to enable the new endpoint
+and screen changes. No additional map key or native dependency is required.
+
+Local regression checks use `node --test tests/roadSnapping.test.mjs` (kept local
+under the existing test-tooling policy). Physical-phone acceptance still needs
+to cover a wrong turn onto a parallel road, an individual personnel reroute,
+a manning-driver reroute, and loss/restoration of network connectivity.
+
 ### On-duty tracking and response evidence (2026-10-24)
 
 The original mobile source now uses the backend's duty roster and renewable policy

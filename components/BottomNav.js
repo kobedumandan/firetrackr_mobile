@@ -2,7 +2,8 @@ import React from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import Colors from '../constants/colors';
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 
 const SIDE_TABS = [
   { name: 'Home',     icon: 'home',     label: 'Home' },
@@ -12,12 +13,14 @@ const SIDE_TABS = [
 const CENTER_TAB = { name: 'Route', icon: 'map', label: 'Route' };
 
 export default function BottomNav({ state, navigation }) {
+  const { colors: Colors, isDark } = useAppPreferences();
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
 
   const renderSide = (tab) => {
     const index = state.routes.findIndex((r) => r.name === tab.name);
     const isFocused = state.index === index;
-    const color = isFocused ? Colors.accentFire : Colors.textTertiary;
+    const color = isFocused ? Colors.accentFire : isDark ? '#8a8a8a' : Colors.textSecondary;
 
     return (
       <TouchableOpacity
@@ -63,7 +66,7 @@ export default function BottomNav({ state, navigation }) {
 
 const CIRCLE_SIZE = 69;
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   wrapper: {
     position: 'absolute',
     bottom: 0,
@@ -85,7 +88,7 @@ const styles = StyleSheet.create({
     shadowRadius: 0,
     elevation: 12,
     borderWidth: 1,
-    borderColor: Colors.borderDim,
+    borderColor: Colors.border,
   },
   navItem: {
     flex: 1,
@@ -124,4 +127,4 @@ const styles = StyleSheet.create({
   centerButtonActive: {
     backgroundColor: Colors.accentFire,
   },
-});
+}));

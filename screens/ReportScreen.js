@@ -15,12 +15,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import Colors from '../constants/colors';
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 import { useAuth } from '../context/AuthContext';
 import { submitIncidentReport } from '../constants/api';
 import ConfirmModal from '../components/ConfirmModal';
 
 function Field({ label, hint, value, onChangeText, placeholder, multiline, required }) {
+  const { colors: Colors } = useAppPreferences();
+  const styles = useStyles();
   return (
     <View style={styles.field}>
       <View style={styles.labelRow}>
@@ -42,6 +45,8 @@ function Field({ label, hint, value, onChangeText, placeholder, multiline, requi
 }
 
 export default function ReportScreen({ navigation, route }) {
+  const { colors: Colors, isDark } = useAppPreferences();
+  const styles = useStyles();
   const { incident, dispatchId } = route.params ?? {};
   const { token, refreshStatus } = useAuth();
 
@@ -144,7 +149,7 @@ export default function ReportScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -309,7 +314,7 @@ export default function ReportScreen({ navigation, route }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   root: {
     flex: 1,
     backgroundColor: Colors.bgBase,
@@ -529,4 +534,4 @@ const styles = StyleSheet.create({
   bottomPad: {
     height: 20,
   },
-});
+}));

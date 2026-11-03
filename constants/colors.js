@@ -3,6 +3,7 @@ const Colors = {
   bgPanel:        '#101011',
   bgCard:         '#141a21',
   bgHover:        '#1F1F1F',
+  bgOverlay:      'rgba(10,12,15,0.86)',
   border:         '#2E2E2E',
   borderDim:      '#222222',
   borderBright:   '#2a3f55',

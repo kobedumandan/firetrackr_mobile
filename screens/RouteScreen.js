@@ -1,14 +1,16 @@
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { Ionicons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useDeviceLocation } from '../hooks/useDeviceLocation';
 import { useRoadSnapping } from '../hooks/useRoadSnapping';
 import { remainingAlongRoute, formatDistance } from '../utils/geo';
 import { setTruckManning } from '../constants/api';
 import ConfirmModal from '../components/ConfirmModal';
-import Colors from '../constants/colors';
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 
 const PANABO = { lat: 7.3072, lng: 125.6836 };
 
@@ -696,6 +698,8 @@ function buildMapHtml({
 }
 
 export default function RouteScreen() {
+  const { colors: Colors } = useAppPreferences();
+  const styles = useStyles();
   const webViewRef = useRef(null);
   const { status, station, deviationState, token, refreshStatus } = useAuth();
   const location = useDeviceLocation();
@@ -852,6 +856,7 @@ export default function RouteScreen() {
 
   return (
     <View style={styles.root}>
+      <StatusBar style="light" />
       <WebView
         ref={webViewRef}
         style={styles.map}
@@ -888,8 +893,8 @@ export default function RouteScreen() {
           activeOpacity={0.85}
           disabled={manningBusy}
         >
-          <Ionicons
-            name={isManning ? 'car-sport' : 'car-sport-outline'}
+          <MaterialCommunityIcons
+            name="fire-truck"
             size={18}
             color={isManning ? Colors.accentGreen : Colors.textSecondary}
           />
@@ -903,9 +908,13 @@ export default function RouteScreen() {
               {isManning ? 'Manning Truck' : 'Mark as Driving'}
             </Text>
             <Text style={styles.manningSub}>
-              {truck.truck_platenum
-                ? `${truck.truck_platenum}${isManning ? '  |  Tracking you' : '  |  Tap when aboard'}`
-                : (isManning ? 'Tracking you' : 'Tap when aboard')}
+              {truck.truck_platenum ? (
+                <>
+                  {truck.truck_platenum}
+                  <Text style={styles.manningDivider}>{'  |  '}</Text>
+                </>
+              ) : null}
+              {isManning ? 'Tracking you' : 'Tap when aboard'}
             </Text>
           </View>
         </TouchableOpacity>
@@ -919,13 +928,14 @@ export default function RouteScreen() {
           onPress={following ? handleOverview : handleRecenter}
           activeOpacity={0.85}
         >
-          <Ionicons name={following ? 'scan-outline' : 'locate'} size={22} color="#fff" />
+          <Ionicons name={following ? 'scan-outline' : 'locate'} size={22} color={following ? Colors.textPrimary : '#fff'} />
         </TouchableOpacity>
       )}
 
       <ConfirmModal
         visible={manningConfirm}
-        icon={isManning ? 'car-sport-outline' : 'car-sport'}
+        icon="fire-truck"
+        iconSet="mci"
         title={isManning ? 'Release Truck?' : 'Man This Truck?'}
         message={
           isManning
@@ -942,7 +952,7 @@ export default function RouteScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   root: { flex: 1, backgroundColor: Colors.bgBase },
   map:  { flex: 1 },
   hud: {
@@ -971,20 +981,20 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 14,
-    backgroundColor: 'rgba(10,12,15,0.82)',
+    backgroundColor: Colors.bgOverlay,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: Colors.border,
   },
   speedValue: {
     fontFamily: 'AxiformaMedium',
     fontSize: 31,
-    color: '#fff',
+    color: Colors.textPrimary,
     lineHeight: 32,
   },
   speedUnit: {
     fontFamily: 'AxiformaMedium',
     fontSize: 9,
-    color: '#9aa3ad',
+    color: Colors.textSecondary,
     letterSpacing: 0.2,
     textTransform: 'uppercase',
   },
@@ -995,14 +1005,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 14,
-    backgroundColor: 'rgba(10,12,15,0.82)',
+    backgroundColor: Colors.bgOverlay,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: Colors.border,
   },
   distValue: {
     fontFamily: 'AxiformaMedium',
     fontSize: 11,
-    color: '#fff',
+    color: Colors.textPrimary,
   },
   fab: {
     position: 'absolute',
@@ -1021,9 +1031,9 @@ const styles = StyleSheet.create({
   },
   fabRecenter: { backgroundColor: '#3b82f6' },
   fabOverview: {
-    backgroundColor: 'rgba(10,12,15,0.86)',
+    backgroundColor: Colors.bgOverlay,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
+    borderColor: Colors.border,
   },
   manningPill: {
     position: 'absolute',
@@ -1043,14 +1053,14 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   manningOn: {
-    backgroundColor: 'rgba(10,12,15,0.9)',
+    backgroundColor: Colors.bgOverlay,
     borderWidth: 1,
     borderColor: Colors.accentGreen,
   },
   manningOff: {
-    backgroundColor: 'rgba(10,12,15,0.86)',
+    backgroundColor: Colors.bgOverlay,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
+    borderColor: Colors.border,
   },
   manningText: { flexShrink: 1 },
   manningLabel: {
@@ -1064,4 +1074,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 1,
   },
-});
+  manningDivider: {
+    color: `${Colors.textSecondary}66`,
+  },
+}));

@@ -1,8 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet } from 'react-native';
-import Colors from '../constants/colors';
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 
 export default function EmergencyBanner({ incidentId, location }) {
+  const styles = useStyles();
   const opacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -37,7 +39,7 @@ export default function EmergencyBanner({ incidentId, location }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   banner: {
     marginHorizontal: 12,
     marginTop: 12,
@@ -77,4 +79,4 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 1,
   },
-});
+}));

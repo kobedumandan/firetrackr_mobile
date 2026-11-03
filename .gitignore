@@ -10,6 +10,10 @@ ios/
 node_modules/
 # Local environment
 .env
+google-services.json
+GoogleService-Info.plist
+*firebase-adminsdk*.json
+*service-account*.json
 
 # Tests (kept local)
 tests/

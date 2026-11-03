@@ -90,7 +90,7 @@ export function configureTracking(token, tracking, background = false) {
       accuracy: next.mode === 'standby' ? Location.Accuracy.Balanced : Location.Accuracy.High,
       timeInterval: next.intervalMs, distanceInterval: 0, pausesUpdatesAutomatically: false,
       activityType: Location.ActivityType.AutomotiveNavigation, showsBackgroundLocationIndicator: true,
-      foregroundService: { notificationTitle: 'FireGIS · On-duty location sharing',
+      foregroundService: { notificationTitle: 'FireTrackr · On-duty location sharing',
         notificationBody: 'Sharing your location with the command center while on duty.',
         notificationColor: '#ff4d1a', killServiceOnDestroy: false },
     });

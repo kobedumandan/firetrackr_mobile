@@ -1,17 +1,18 @@
 {
   "expo": {
-    "name": "FireGIS Mobile",
-    "slug": "firegis-mobile",
+    "name": "FireTrackr",
+    "slug": "firetrackr-mobile",
     "version": "1.0.0",
+    "icon": "./assets/icon.png",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "splash": {
       "resizeMode": "contain",
       "backgroundColor": "#0a0c0f"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.bfp.firegis",
+      "bundleIdentifier": "com.bfp.firetrackr",
       "infoPlist": {
         "UIBackgroundModes": [
           "location",
@@ -21,9 +22,10 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0a0c0f"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
       },
-      "package": "com.bfp.firegis",
+      "package": "com.bfp.firetrackr",
       "softwareKeyboardLayoutMode": "resize"
     },
     "web": {},
@@ -32,8 +34,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "FireGIS needs access to your photos so you can attach scene photographs to an incident report.",
-          "cameraPermission": "FireGIS needs camera access so you can take scene photographs for an incident report.",
+          "photosPermission": "FireTrackr needs access to your photos so you can attach scene photographs to an incident report.",
+          "cameraPermission": "FireTrackr needs camera access so you can take scene photographs for an incident report.",
           "microphonePermission": false
         }
       ],
@@ -41,8 +43,8 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "FireGIS shares your location with the command center while you are on duty, including standby and active dispatches.",
-          "locationAlwaysAndWhenInUsePermission": "FireGIS shares your location while on duty even with the screen off: every 30 seconds on standby and more often during a dispatch. Sharing stops when you are off duty.",
+          "locationWhenInUsePermission": "FireTrackr shares your location with the command center while you are on duty, including standby and active dispatches.",
+          "locationAlwaysAndWhenInUsePermission": "FireTrackr shares your location while on duty even with the screen off: every 30 seconds on standby and more often during a dispatch. Sharing stops when you are off duty.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true,
           "isIosBackgroundLocationEnabled": true
@@ -58,6 +60,12 @@
     "androidNavigationBar": {
       "backgroundColor": "#0a0c0f",
       "barStyle": "light-content"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "7de90dd9-420d-40fa-b8b0-772b9a698fbf"
+      }
+    },
+    "owner": "kobeduu"
   }
 }

@@ -5,8 +5,16 @@ const fs = require('fs');
 const path = require('path');
 
 module.exports = ({ config }) => {
-  if (fs.existsSync(path.join(__dirname, 'google-services.json'))) {
-    config.android = { ...config.android, googleServicesFile: './google-services.json' };
+  const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID?.trim() || config.extra?.eas?.projectId;
+  if (projectId) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)) {
+      throw new Error('EXPO_PUBLIC_EAS_PROJECT_ID must be the project UUID from Expo project settings.');
+    }
+    config.extra = { ...config.extra, eas: { ...config.extra?.eas, projectId } };
+  }
+  const firebaseFile = process.env.GOOGLE_SERVICES_JSON || path.join(__dirname, 'google-services.json');
+  if (fs.existsSync(firebaseFile)) {
+    config.android = { ...config.android, googleServicesFile: firebaseFile };
   }
   return config;
 };

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Notifications from 'expo-notifications';
+import { AppState } from 'react-native';
 import {
   DEFAULT_PUSH_PREFS,
   PushUnavailableError,
   getExpoPushToken,
   readPushPrefs,
+  readLastPushToken,
+  rememberPushToken,
   registerPushToken,
   savePushPrefs,
   unregisterPushToken,
@@ -25,29 +28,49 @@ import { navigateHome } from '../utils/navigation';
 export function usePushNotifications({ token, onAlert }) {
   const [prefs, setPrefsState] = useState(DEFAULT_PUSH_PREFS);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const prefsRef = useRef(DEFAULT_PUSH_PREFS);
   const [pushState, setPushState] = useState({ state: 'off' });
   const pushTokenRef = useRef(null);
+  const operations = useRef(Promise.resolve());
+  const [attempt, setAttempt] = useState(0);
   const onAlertRef = useRef(onAlert);
   onAlertRef.current = onAlert;
 
+  const enqueue = useCallback((operation) => {
+    const next = operations.current.catch(() => {}).then(operation);
+    operations.current = next;
+    return next;
+  }, []);
+  const retryPushRegistration = useCallback(() => setAttempt(value => value + 1), []);
+
   useEffect(() => {
-    readPushPrefs().then((p) => { setPrefsState(p); setPrefsLoaded(true); });
+    let cancelled = false;
+    readPushPrefs().then((p) => {
+      if (!cancelled) { prefsRef.current = p; setPrefsState(p); setPrefsLoaded(true); }
+    });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
     if (!token || !prefsLoaded) return;
     let cancelled = false;
 
-    (async () => {
-      if (!prefs.enabled) {
-        if (pushTokenRef.current) await unregisterPushToken(token, pushTokenRef.current);
-        if (!cancelled) setPushState({ state: 'off' });
-        return;
-      }
-      setPushState({ state: 'registering' });
+    setPushState({ state: prefs.enabled ? 'registering' : 'off' });
+    enqueue(async () => {
+      if (cancelled) return;
       try {
+        if (!prefs.enabled) {
+          const lastToken = pushTokenRef.current ?? await readLastPushToken();
+          if (cancelled) return;
+          if (lastToken) await unregisterPushToken(token, lastToken);
+          if (!cancelled) setPushState({ state: 'off' });
+          return;
+        }
         const pushToken = await getExpoPushToken();
+        if (cancelled) return;
         pushTokenRef.current = pushToken;
+        await rememberPushToken(pushToken);
+        if (cancelled) return;
         await registerPushToken(token, pushToken, prefs);
         if (!cancelled) setPushState({ state: 'on' });
       } catch (err) {
@@ -56,13 +79,21 @@ export function usePushNotifications({ token, onAlert }) {
           state: 'error',
           message: err instanceof PushUnavailableError
             ? err.message
-            : `Could not register for alerts: ${err.message}`,
+            : prefs.enabled ? `Could not register for alerts: ${err.message}`
+              : 'Could not stop remote alerts. Reconnect and retry notifications.',
         });
       }
-    })();
+    });
 
     return () => { cancelled = true; };
-  }, [token, prefsLoaded, prefs]);
+  }, [token, prefsLoaded, prefs, attempt, enqueue]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active' && token) retryPushRegistration();
+    });
+    return () => subscription.remove();
+  }, [token, retryPushRegistration]);
 
   useEffect(() => {
     const received = Notifications.addNotificationReceivedListener(() => {
@@ -76,18 +107,22 @@ export function usePushNotifications({ token, onAlert }) {
   }, []);
 
   const setPushPrefs = useCallback((patch) => {
-    setPrefsState((prev) => {
-      const next = { ...prev, ...patch };
-      savePushPrefs(next);
-      return next;
-    });
+    const next = { ...prefsRef.current, ...patch };
+    prefsRef.current = next;
+    savePushPrefs(next);
+    setPrefsState(next);
   }, []);
 
   /** Call before revoking the session token, while it can still authenticate. */
   const unregisterForLogout = useCallback(async (authToken) => {
-    if (pushTokenRef.current) await unregisterPushToken(authToken, pushTokenRef.current);
-    setPushState({ state: 'off' });
-  }, []);
+    await enqueue(async () => {
+      const lastToken = pushTokenRef.current ?? await readLastPushToken();
+      try {
+        if (lastToken) await unregisterPushToken(authToken, lastToken);
+      } catch { /* Local sign-out must still complete without a connection. */ }
+      setPushState({ state: 'off' });
+    });
+  }, [enqueue]);
 
-  return { pushPrefs: prefs, setPushPrefs, pushState, unregisterForLogout };
+  return { pushPrefs: prefs, setPushPrefs, pushState, unregisterForLogout, retryPushRegistration };
 }

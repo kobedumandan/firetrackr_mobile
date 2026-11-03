@@ -98,7 +98,7 @@ export function AuthProvider({ children }) {
   const { alerts, unreadAlerts, markAlertsRead, clearAlerts } =
     useAlertLog({ token, status });
 
-  const { pushPrefs, setPushPrefs, pushState, unregisterForLogout } =
+  const { pushPrefs, setPushPrefs, pushState, unregisterForLogout, retryPushRegistration } =
     usePushNotifications({ token, onAlert: refreshStatus });
 
   // Instant push: refresh status the moment the backend broadcasts a route /
@@ -177,6 +177,7 @@ export function AuthProvider({ children }) {
       pushPrefs,
       setPushPrefs,
       pushState,
+      retryPushRegistration,
       login,
       logout,
       updateDispatchStatus,

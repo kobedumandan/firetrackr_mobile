@@ -23,6 +23,16 @@ export function authHeaders(token) {
   return { ...API_HEADERS, Authorization: `Bearer ${token}` };
 }
 
+// Display-only match against the same road network used to calculate routes.
+export async function snapToRoad(token, latitude, longitude, signal) {
+  const res = await fetch(`${BASE_URL}/api/mobile/road-snap?lat=${latitude}&lon=${longitude}`, {
+    headers: authHeaders(token), signal,
+  });
+  if (!res.ok) throw new Error('Road matching unavailable');
+  const body = await res.json();
+  return body.snapped ?? null;
+}
+
 // Driver claims/releases manning (driving) the dispatched truck.
 export async function setTruckManning(token, dispatchId, manning) {
   const res = await fetch(`${BASE_URL}/api/dispatch/${dispatchId}/truck-manning`, {
@@ -37,8 +47,8 @@ export async function setTruckManning(token, dispatchId, manning) {
   return res.json();
 }
 
-// Any crew member marks the team as arrived on scene. Moves the dispatch to
-// 'on_scene' and records the arrival time used for response-time metrics.
+// Records the authenticated person's arrival. Only a confirmed manning driver
+// also records vehicle arrival and changes the dispatch's vehicle response state.
 export async function markArrived(token, dispatchId) {
   const res = await fetch(`${BASE_URL}/api/dispatch/${dispatchId}/arrived`, {
     method: 'PATCH',
@@ -47,6 +57,30 @@ export async function markArrived(token, dispatchId) {
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
     throw new Error(detail?.detail ?? 'Failed to mark arrival');
+  }
+  return res.json();
+}
+
+// Server-received actions; retries return the first saved timestamp and actor.
+export async function confirmDispatchAction(token, dispatchId, action) {
+  if (!['acknowledge', 'depart'].includes(action)) throw new Error('Unknown dispatch action');
+  const res = await fetch(`${BASE_URL}/api/dispatch/${dispatchId}/${action}`, {
+    method: 'PATCH', headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(typeof body?.detail === 'string' ? body.detail : 'Could not save dispatch action');
+  }
+  return res.json();
+}
+
+export async function confirmDispatchClearance(token, dispatchId, body) {
+  const res = await fetch(`${BASE_URL}/api/dispatch/${dispatchId}/clearance`, {
+    method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(typeof detail?.detail === 'string' ? detail.detail : 'Could not record team clearance');
   }
   return res.json();
 }

@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import { stopBackgroundTracking } from '../tasks/locationTask';
 import { useLocationTracking } from '../hooks/useLocationTracking';
 import { useStatusSocket } from '../hooks/useStatusSocket';
 import { useAlertLog } from '../hooks/useAlertLog';
@@ -36,20 +37,21 @@ export function AuthProvider({ children }) {
   // True until the stored session has been read, so the app doesn't flash the
   // login screen before restoring a logged-in user.
   const [restoring,     setRestoring]     = useState(true);
-
-  const dispatch = status?.dispatch ?? null;
+  const sessionToken = useRef(null);
 
   const handleDeviationChange = useCallback((state) => {
     setDeviationState(state);
   }, []);
 
-  useLocationTracking({
+  const trackingState = useLocationTracking({
     token,
-    dispatch,
+    tracking: status?.tracking,
     onDeviationChange: handleDeviationChange,
   });
 
   const clearAuthState = useCallback(() => {
+    sessionToken.current = null;
+    stopBackgroundTracking().catch(() => {});
     setUser(null);
     setToken(null);
     setStatus(null);
@@ -64,12 +66,14 @@ export function AuthProvider({ children }) {
       const res = await fetch(`${BASE_URL}/api/mobile/me/status`, {
         headers: authHeaders(token),
       });
+      if (sessionToken.current !== token) return;
       // Expired (JWT_EXPIRE_HOURS) or revoked token: drop the stale session
       // instead of polling forever with a dead token.
       if (res.status === 401) { clearAuthState(); return; }
       if (!res.ok) return;
       const data = await res.json();
-      setStatus(data);
+      if (sessionToken.current !== token) return;
+      setStatus({ ...data, tracking: data.tracking ? { ...data.tracking, client_received_at: Date.now() } : null });
     } catch { /* non-fatal */ }
   }, [token, clearAuthState]);
 
@@ -80,6 +84,7 @@ export function AuthProvider({ children }) {
         const saved = raw ? JSON.parse(raw) : null;
         if (saved?.token && saved?.user) {
           setUser(saved.user);
+          sessionToken.current = saved.token;
           setToken(saved.token);
           setStation(saved.station ?? null);
           // Status is not restored: the poll below fetches it fresh, and a
@@ -91,9 +96,9 @@ export function AuthProvider({ children }) {
   }, []);
 
   const { alerts, unreadAlerts, markAlertsRead, clearAlerts } =
-    useAlertLog({ token, status, deviationState });
+    useAlertLog({ token, status });
 
-  const { pushPrefs, setPushPrefs, pushState, unregisterForLogout } =
+  const { pushPrefs, setPushPrefs, pushState, unregisterForLogout, retryPushRegistration } =
     usePushNotifications({ token, onAlert: refreshStatus });
 
   // Instant push: refresh status the moment the backend broadcasts a route /
@@ -115,8 +120,10 @@ export function AuthProvider({ children }) {
       const res = await fetch(`${BASE_URL}/api/mobile/me/station`, {
         headers: authHeaders(token),
       });
+      if (sessionToken.current !== token) return;
       if (!res.ok) return;
       const data = await res.json();
+      if (sessionToken.current !== token) return;
       setStation(data.station ?? null);
     } catch { /* non-fatal — keep the cached value */ }
   }, [token]);
@@ -124,15 +131,16 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!token) return;
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') refreshStation();
+      if (next === 'active') { refreshStation(); refreshStatus(); }
     });
     return () => sub.remove();
-  }, [token, refreshStation]);
+  }, [token, refreshStation, refreshStatus]);
 
   const login = (userData, authToken, statusData = null, stationData = null) => {
+    sessionToken.current = authToken ?? null;
     setUser(userData);
     setToken(authToken ?? null);
-    setStatus(statusData);
+    setStatus(statusData ? { ...statusData, tracking: statusData.tracking ? { ...statusData.tracking, client_received_at: Date.now() } : null } : null);
     setStation(stationData);
     if (authToken) saveSession({ token: authToken, user: userData, station: stationData });
   };
@@ -161,6 +169,7 @@ export function AuthProvider({ children }) {
       status,
       station,
       deviationState,
+      trackingState,
       alerts,
       unreadAlerts,
       markAlertsRead,
@@ -168,6 +177,7 @@ export function AuthProvider({ children }) {
       pushPrefs,
       setPushPrefs,
       pushState,
+      retryPushRegistration,
       login,
       logout,
       updateDispatchStatus,

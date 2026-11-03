@@ -1,8 +1,11 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import Colors from '../constants/colors';
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 
 function Badge({ label, variant = 'fire' }) {
+  const { colors: Colors } = useAppPreferences();
+  const styles = useStyles();
   const palette = Colors[`badge${variant.charAt(0).toUpperCase() + variant.slice(1)}`];
   return (
     <View style={[styles.badge, { backgroundColor: palette.bg, borderColor: palette.border }]}>
@@ -12,6 +15,7 @@ function Badge({ label, variant = 'fire' }) {
 }
 
 export default function IncidentCard({ incidentId, location, time, onPress }) {
+  const styles = useStyles();
   return (
     <View style={styles.card}>
       <Text style={styles.cardLabel}>Assigned Incident</Text>
@@ -30,7 +34,7 @@ export default function IncidentCard({ incidentId, location, time, onPress }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   card: {
     marginHorizontal: 12,
     marginTop: 14,
@@ -98,4 +102,4 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
     // textTransform: 'uppercase',
   },
-});
+}));

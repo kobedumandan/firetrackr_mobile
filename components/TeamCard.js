@@ -1,10 +1,12 @@
 import React from "react";
 import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import Colors from "../constants/colors";
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 import { useAuth } from "../context/AuthContext";
 
 function Badge({ label, color }) {
+  const styles = useStyles();
   return (
     <View
       style={[
@@ -18,6 +20,7 @@ function Badge({ label, color }) {
 }
 
 function Row({ icon, label, value, valueColor }) {
+  const styles = useStyles();
   return (
     <View style={styles.row}>
       {/* <Ionicons name={icon} size={13} color={Colors.textMuted} style={styles.rowIcon} /> */}
@@ -32,6 +35,8 @@ function Row({ icon, label, value, valueColor }) {
 }
 
 export default function TeamCard() {
+  const { colors: Colors } = useAppPreferences();
+  const styles = useStyles();
   const { status } = useAuth();
   const loading = status === null;
   const error = null;
@@ -107,7 +112,7 @@ export default function TeamCard() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   card: {
     marginHorizontal: 12,
     marginTop: 14,
@@ -204,4 +209,4 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 8,
   },
-});
+}));

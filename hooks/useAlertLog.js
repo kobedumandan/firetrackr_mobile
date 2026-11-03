@@ -14,24 +14,21 @@ function where(dispatch) {
 
 /**
  * In-app alert history, derived from the status the app already receives
- * (10s poll + WebSocket-triggered refresh) and the deviation state from
- * location tracking. No new endpoint: every alert is a diff between the
+ * (10s poll + WebSocket-triggered refresh). No new endpoint: every alert is a diff between the
  * previous and current snapshot.
  *
  * The first snapshot after login only seeds the baseline, so reopening the
  * app mid-dispatch doesn't replay "Dispatch Assigned". The log lives in memory
  * and is cleared when `token` changes (login / logout).
  */
-export function useAlertLog({ token, status, deviationState }) {
+export function useAlertLog({ token, status }) {
   const [alerts, setAlerts] = useState([]);
   const prevRef = useRef(null);
-  const prevDeviatedRef = useRef(false);
   const nextIdRef = useRef(1);
 
   useEffect(() => {
     setAlerts([]);
     prevRef.current = null;
-    prevDeviatedRef.current = false;
   }, [token]);
 
   const add = useCallback((items) => {
@@ -102,19 +99,6 @@ export function useAlertLog({ token, status, deviationState }) {
     }
     add(out);
   }, [status, add]);
-
-  useEffect(() => {
-    const deviated = !!deviationState?.isDeviated;
-    if (deviated && !prevDeviatedRef.current) {
-      add([{
-        title: 'Off Route',
-        body: 'You have left the dispatch route. A connector back to it is on the Route tab.',
-        variant: 'amber',
-        icon: 'warning',
-      }]);
-    }
-    prevDeviatedRef.current = deviated;
-  }, [deviationState, add]);
 
   const markAlertsRead = useCallback(() => {
     setAlerts((prev) =>

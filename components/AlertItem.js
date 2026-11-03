@@ -1,17 +1,18 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Colors from '../constants/colors';
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 
 // Tile tint + glyph colour per variant — the same tinted-puck treatment the
 // web dashboard's alert panel uses, so an alert reads the same on both.
-const TONE = {
+const tonesFor = (Colors) => ({
   fire:  { fg: Colors.accentFire,    bg: Colors.accentFireDim },
   amber: { fg: Colors.accentAmber,   bg: Colors.accentAmberDim },
   blue:  { fg: Colors.accentBlue,    bg: Colors.accentBlueDim },
   green: { fg: Colors.accentGreen,   bg: Colors.accentGreenDim },
   muted: { fg: Colors.textSecondary, bg: Colors.bgHover },
-};
+});
 
 export default function AlertItem({
   title,
@@ -21,7 +22,10 @@ export default function AlertItem({
   variant = 'muted',
   unread = false,
 }) {
-  const tone = TONE[variant] ?? TONE.muted;
+  const { colors: Colors } = useAppPreferences();
+  const styles = useStyles();
+  const tones = tonesFor(Colors);
+  const tone = tones[variant] ?? tones.muted;
   const dotOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -63,7 +67,7 @@ export default function AlertItem({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   card: {
     flexDirection: 'row',
     gap: 12,
@@ -123,4 +127,4 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     letterSpacing: -0.2,
   },
-});
+}));

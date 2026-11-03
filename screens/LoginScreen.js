@@ -4,19 +4,23 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
-import Colors from '../constants/colors';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import Svg, { Polygon } from 'react-native-svg';
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 import { BASE_URL, API_HEADERS, authHeaders } from '../constants/api';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginScreen() {
+  const { colors: Colors, isDark } = useAppPreferences();
+  const styles = useStyles();
+  const placeholderColor = `${Colors.textTertiary}99`;
   const { login } = useAuth();
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
@@ -85,17 +89,26 @@ export default function LoginScreen() {
       // so shrinking here too double-counts it and leaves a gap / jitters.
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
       >
         {/* Logo block */}
         <View style={styles.logoWrap}>
-          <Text style={styles.org}>BFP  |  Panabo City</Text>
-          <View style={styles.fireIcon} />
+          <Text style={styles.org}>
+            BFP  <Text style={styles.divider}>|</Text>  Panabo City
+          </Text>
+          <View style={styles.fireIcon}>
+            <Svg width="100%" height="100%" viewBox="0 0 100 100">
+              <Polygon
+                points="50,0 80,30 100,60 70,80 50,100 30,80 0,60 20,30"
+                fill={Colors.accentFire}
+              />
+            </Svg>
+          </View>
           <Text style={styles.appTitle}>
-            FIRE<Text style={styles.appTitleAccent}>OPS</Text>
+            FIRE<Text style={styles.appTitleAccent}>TRACKR</Text>
           </Text>
           <Text style={styles.appSub}>Personnel Mobile</Text>
         </View>
@@ -103,25 +116,39 @@ export default function LoginScreen() {
         {/* Form */}
         <View style={styles.form}>
           <Text style={styles.fieldLabel}>Email</Text>
-          <TextInput
-            style={styles.input}
-            value={email}
-            onChangeText={setEmail}
-            placeholder="bfp@gmail.com"
-            placeholderTextColor={Colors.textTertiary}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-          />
+          <View style={[styles.inputWrap, styles.emailWrap]}>
+            <MaterialIcons
+              name="mail-outline"
+              size={15}
+              color={Colors.textSecondary}
+              style={styles.inputIcon}
+            />
+            <TextInput
+              style={styles.input}
+              value={email}
+              onChangeText={setEmail}
+              placeholder="bfp@gmail.com"
+              placeholderTextColor={placeholderColor}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+            />
+          </View>
 
           <Text style={styles.fieldLabel}>Password</Text>
-          <View style={styles.passwordWrap}>
+          <View style={styles.inputWrap}>
+            <MaterialIcons
+              name="lock-outline"
+              size={15}
+              color={Colors.textSecondary}
+              style={styles.inputIcon}
+            />
             <TextInput
-              style={styles.passwordInput}
+              style={styles.input}
               value={password}
               onChangeText={setPassword}
               placeholder="••••••••"
-              placeholderTextColor={Colors.textTertiary}
+              placeholderTextColor={placeholderColor}
               secureTextEntry={!showPassword}
             />
             <TouchableOpacity
@@ -159,7 +186,9 @@ export default function LoginScreen() {
 
           <View style={styles.secureRow}>
             {/* <Ionicons name="lock-closed" size={9} color={Colors.textMuted} /> */}
-            <Text style={styles.secureText}>FireOPS 2026  |  All Rights Reserved.</Text>
+            <Text style={styles.secureText}>
+              FireTrackr 2026  <Text style={styles.divider}>|</Text>  <Text style={styles.reservedText}>All Rights Reserved.</Text>
+            </Text>
           </View>
         </View>
       </ScrollView>
@@ -167,7 +196,7 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   root: {
     flex: 1,
     backgroundColor: Colors.pageDefaultBase,
@@ -183,17 +212,9 @@ const styles = StyleSheet.create({
     marginBottom: 36,
   },
   fireIcon: {
-    width: 48,
-    height: 48,
-    backgroundColor: Colors.accentFire,
-    borderRadius: 4,
-    transform: [{ rotate: '45deg' }],
+    width: 56,
+    height: 56,
     marginBottom: 12,
-    shadowColor: Colors.accentFire,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    elevation: 8,
   },
   org: {
     fontFamily: 'AxiformaMedium',
@@ -205,8 +226,9 @@ const styles = StyleSheet.create({
   },
   appTitle: {
     fontFamily: 'BarlowCondensed_900Black',
-    fontSize: 41,
-    letterSpacing: 2.6,
+    fontSize: 38,
+    letterSpacing: 2.5,
+    lineHeight: 38,
     color: Colors.textPrimary,
   },
   appTitleAccent: {
@@ -231,19 +253,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginBottom: 5,
   },
-  input: {
-    backgroundColor: Colors.bgPanel,
-    borderWidth: 1,
-    borderColor: Colors.borderDim,
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    color: Colors.textPrimary,
-    fontFamily: 'AxiformaRegular',
-    fontSize: 10.8,
-    marginBottom: 18,
-  },
-  passwordWrap: {
+  inputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.bgPanel,
@@ -252,9 +262,18 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginBottom: 14,
   },
-  passwordInput: {
+  emailWrap: {
+    marginBottom: 18,
+  },
+  inputIcon: {
+    marginLeft: 12,
+    opacity: 0.65,
+  },
+  input: {
     flex: 1,
-    paddingHorizontal: 12,
+    minWidth: 0,
+    paddingLeft: 10,
+    paddingRight: 12,
     paddingVertical: 8,
     color: Colors.textPrimary,
     fontFamily: 'AxiformaRegular',
@@ -316,4 +335,10 @@ const styles = StyleSheet.create({
     fontSize: 9.8,
     color: Colors.textTertiary,
   },
-});
+  divider: {
+    color: `${Colors.textTertiary}99`,
+  },
+  reservedText: {
+    color: `${Colors.textTertiary}CC`,
+  },
+}));

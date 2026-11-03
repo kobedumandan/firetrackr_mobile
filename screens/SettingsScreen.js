@@ -7,22 +7,33 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import Colors from '../constants/colors';
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 import { useAuth } from '../context/AuthContext';
 import ConfirmModal from '../components/ConfirmModal';
 import { sendTestPush } from '../utils/notifications';
+import Constants from 'expo-constants';
+import SettingsModal from '../components/SettingsModal';
+import appConfig from '../app.json';
 
 function SectionHeader({ label }) {
+  const styles = useStyles();
   return <Text style={styles.sectionHeader}>{label}</Text>;
 }
 
-function SettingRow({ icon, label, value, onPress, rightElement }) {
+function SettingRow({ icon, label, value, onPress, rightElement, disabled = false }) {
+  const { colors: Colors } = useAppPreferences();
+  const styles = useStyles();
+  const Container = onPress ? TouchableOpacity : View;
   return (
-    <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.7}>
+    <Container style={[styles.row, disabled && styles.rowDisabled]} onPress={onPress}
+      disabled={disabled} activeOpacity={0.7} accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityState={onPress ? { disabled } : undefined}>
       <View style={styles.rowLeft}>
         <View style={styles.iconWrap}>
           <Ionicons name={icon} size={16} color={Colors.accentFire} />
@@ -31,15 +42,16 @@ function SettingRow({ icon, label, value, onPress, rightElement }) {
       </View>
       <View style={styles.rowRight}>
         {value ? <Text style={styles.rowValue}>{value}</Text> : null}
-        {rightElement ?? (
+        {rightElement ?? (onPress ? (
           <Ionicons name="chevron-forward" size={15} color={Colors.textSecondary} />
-        )}
+        ) : null)}
       </View>
-    </TouchableOpacity>
+    </Container>
   );
 }
 
 function Divider() {
+  const styles = useStyles();
   return <View style={styles.divider} />;
 }
 
@@ -50,21 +62,38 @@ function profileDisplayName(user) {
 }
 
 function avatarInitial(user) {
-  return (user?.last_name ?? user?.first_name ?? '?').charAt(0).toUpperCase();
+  const first = (user?.first_name ?? '').trim();
+  const last = (user?.last_name ?? '').trim();
+  return `${first.charAt(0)}${last.charAt(0)}`.toUpperCase() || '?';
 }
 
 export default function SettingsScreen() {
-  const { logout, user, token, pushPrefs, setPushPrefs, pushState } = useAuth();
+  const { colors: Colors, isDark, theme, updatePreferences } = useAppPreferences();
+  const styles = useStyles();
+  const { logout, user, token, pushPrefs, setPushPrefs, pushState, retryPushRegistration } = useAuth();
   const [testing, setTesting] = useState(false);
-  const [locationTracking, setLocationTracking] = useState(true);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
+  const [settingsModal, setSettingsModal] = useState(null);
+  const themeLabel = { dark: 'Dark', light: 'Light', system: 'Use device setting' }[theme];
+  const version = Constants.expoConfig?.version ?? appConfig.expo.version;
+
+  const selectTheme = async (nextTheme) => {
+    setSettingsModal(null);
+    try { await updatePreferences({ theme: nextTheme }); }
+    catch { Alert.alert('Theme', 'The theme changed, but could not be saved. Please try again.'); }
+  };
+
+  const openPhoneSettings = async () => {
+    try { await Linking.openSettings(); }
+    catch { Alert.alert('Phone Settings', 'Open your phone settings and select this app to manage notification permissions.'); }
+  };
 
   const runTestAlert = async () => {
-    if (testing) return;
+    if (testing || pushState.state !== 'on') return;
     setTesting(true);
     try {
       await sendTestPush(token);
-      Alert.alert('Test Alert', 'Sent. It should arrive on this phone within a few seconds.');
+      Alert.alert('Test Alert', 'Test alert requested. It may take a few seconds to arrive on your registered phones.');
     } catch (err) {
       Alert.alert('Test Alert', err.message);
     } finally {
@@ -75,7 +104,7 @@ export default function SettingsScreen() {
   const pushNote =
     pushState.state === 'error'      ? pushState.message :
     pushState.state === 'registering' ? 'Registering this phone…' :
-    pushState.state === 'on'          ? 'This phone receives dispatch alerts, even when the app is closed.' :
+    pushState.state === 'on'          ? 'This phone is registered for dispatch alerts, including when the app is in the background.' :
     'Dispatch alerts are off. You will only see a dispatch while the app is open.';
 
   const name    = profileDisplayName(user);
@@ -83,7 +112,7 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Settings</Text>
@@ -116,6 +145,7 @@ export default function SettingsScreen() {
           <SettingRow
             icon="notifications-outline"
             label="Push Notifications"
+            onPress={() => setPushPrefs({ enabled: !pushPrefs.enabled })}
             rightElement={
               <Switch
                 value={pushPrefs.enabled}
@@ -130,11 +160,15 @@ export default function SettingsScreen() {
           >
             {pushNote}
           </Text>
+          {pushState.state === 'error' && (
+            <SettingRow icon="refresh-outline" label="Retry Notifications" onPress={retryPushRegistration} />
+          )}
           <Divider />
           <SettingRow
             icon="volume-high-outline"
             label="Alert Sound"
             value={pushPrefs.sound ? 'Sound' : 'Vibrate'}
+            onPress={pushPrefs.enabled ? () => setPushPrefs({ sound: !pushPrefs.sound }) : undefined}
             rightElement={
               <Switch
                 value={pushPrefs.sound}
@@ -150,49 +184,27 @@ export default function SettingsScreen() {
             icon="paper-plane-outline"
             label="Send Test Alert"
             value={testing ? 'Sending…' : null}
-            onPress={pushState.state === 'on' ? runTestAlert : undefined}
-          />
-        </View>
-
-        {/* Location */}
-        {/* <SectionHeader label="Location" />
-        <View style={styles.card}>
-          <SettingRow
-            icon="location-outline"
-            label="IoT Location Tracking"
-            rightElement={
-              <Switch
-                value={locationTracking}
-                onValueChange={setLocationTracking}
-                trackColor={{ false: Colors.border, true: Colors.accentFire }}
-                thumbColor="#fff"
-              />
-            }
+            onPress={runTestAlert}
+            disabled={pushState.state !== 'on' || testing}
           />
           <Divider />
-          <SettingRow
-            icon="hardware-chip-outline"
-            label="Device ID"
-            value="BFP-ESP-002"
-          />
-        </View> */}
+          <SettingRow icon="options-outline" label="Phone Notification Settings" onPress={openPhoneSettings} />
+        </View>
 
         {/* App */}
         <SectionHeader label="Application" />
         <View style={styles.card}>
-          <SettingRow icon="moon-outline" label="Theme" value="Dark" />
+          <SettingRow icon="moon-outline" label="Theme" value={themeLabel} onPress={() => setSettingsModal('theme')} />
           <Divider />
-          <SettingRow icon="language-outline" label="Language" value="English" />
+          <SettingRow icon="shield-checkmark-outline" label="Privacy Policy" onPress={() => setSettingsModal('privacy')} />
           <Divider />
-          <SettingRow icon="shield-checkmark-outline" label="Privacy Policy" />
-          <Divider />
-          <SettingRow icon="document-text-outline" label="Terms of Use" />
+          <SettingRow icon="document-text-outline" label="Terms of Use" onPress={() => setSettingsModal('terms')} />
         </View>
 
         {/* About */}
         <SectionHeader label="About" />
         <View style={styles.card}>
-          <SettingRow icon="phone-portrait-outline" label="App Version" value="v0.1.0" />
+          <SettingRow icon="phone-portrait-outline" label="App Version" value={`v${version}`} />
           <Divider />
           <SettingRow icon="business-outline" label="Organization" value="BFP Panabo City" />
         </View>
@@ -209,6 +221,7 @@ export default function SettingsScreen() {
 
         <ConfirmModal
           visible={logoutConfirm}
+          eyebrow="SESSION"
           icon="log-out-outline"
           title="Sign Out?"
           message="You'll be signed out and live location tracking will stop. You'll need to log in again to receive dispatches."
@@ -221,6 +234,10 @@ export default function SettingsScreen() {
           onCancel={() => setLogoutConfirm(false)}
         />
 
+        <SettingsModal visible={settingsModal !== null} onClose={() => setSettingsModal(null)}
+          selectedTheme={theme} onSelectTheme={selectTheme}
+          document={settingsModal === 'theme' ? null : settingsModal} />
+
         <View style={styles.bottomPad} />
       </ScrollView>
       </View>
@@ -228,7 +245,7 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   root: {
     flex: 1,
     backgroundColor: Colors.bgBase,
@@ -282,6 +299,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
+  rowDisabled: {
+    opacity: 0.45,
+  },
   rowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -315,9 +335,9 @@ const styles = StyleSheet.create({
   },
   note: {
     fontFamily: 'AxiformaRegular',
-    fontSize: 11,
-    lineHeight: 15,
-    color: Colors.textSecondary,
+    fontSize: 9.5,
+    lineHeight: 14,
+    color: `${Colors.textSecondary}99`,
     paddingHorizontal: 14,
     paddingBottom: 10,
     marginTop: -4,
@@ -334,18 +354,18 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 13,
     backgroundColor: Colors.accentFire,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarInitial: {
-    fontFamily: 'AxiformaBlack',
-    fontSize: 22,
+    fontFamily: 'AxiformaMedium',
+    fontSize: 14,
     color: '#fff',
-    letterSpacing: -0.5,
+    letterSpacing: 0.3,
   },
   profileInfo: {
     flex: 1,
@@ -396,4 +416,4 @@ const styles = StyleSheet.create({
   bottomPad: {
     height: 12,
   },
-});
+}));

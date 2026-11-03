@@ -1,17 +1,19 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
+  Image,
   ScrollView,
   TouchableOpacity,
-  Animated,
   StyleSheet,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import Svg, { Defs, LinearGradient, Path, RadialGradient, Rect, Stop } from "react-native-svg";
 import IncidentDetailsModal from "../components/IncidentDetailsModal";
-import Colors from "../constants/colors";
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 import { useAuth } from "../context/AuthContext";
 
 function getGreeting() {
@@ -52,16 +54,14 @@ function elapsed(iso, now) {
   return `${h}h ${mins % 60}m ago`;
 }
 
-// Tint pairs, so a pill and its icon tile always come from the same accent.
-const TONE = {
+// Shared accents for pills and status values.
+const tonesFor = (Colors) => ({
   fire: { fg: Colors.accentFire, bg: Colors.accentFireDim },
   amber: { fg: Colors.accentAmber, bg: Colors.accentAmberDim },
   blue: { fg: Colors.accentBlue, bg: Colors.accentBlueDim },
   green: { fg: Colors.accentGreen, bg: Colors.accentGreenDim },
   muted: { fg: Colors.textSecondary, bg: Colors.bgHover },
-};
-
-const SEVERITY_TONE = { Critical: "fire", Moderate: "amber", Minor: "blue" };
+});
 
 const DISPATCH_LABEL = {
   dispatched: { label: "Dispatched", tone: "amber" },
@@ -69,60 +69,118 @@ const DISPATCH_LABEL = {
   on_scene: { label: "On Scene", tone: "blue" },
 };
 
-function Pill({ label, tone = "muted" }) {
-  const t = TONE[tone] ?? TONE.muted;
+function Pill({ label, tone = "muted", outlined = false, onAccent = false }) {
+  const { colors: Colors, isDark } = useAppPreferences();
+  const styles = useStyles();
+  const tones = tonesFor(Colors);
+  const t = tones[tone] ?? tones.muted;
+  const lightOutline = outlined && !onAccent && !isDark;
   return (
-    <View style={[styles.pill, { backgroundColor: t.bg }]}>
-      <Text style={[styles.pillText, { color: t.fg }]}>{label}</Text>
+    <View style={[styles.pill, outlined ? styles.pillOutline : { backgroundColor: t.bg }, lightOutline && styles.pillLightOutline]}>
+      <Text style={[styles.pillText, { color: outlined ? lightOutline ? Colors.textSecondary : "#fff" : t.fg }]}>{label}</Text>
     </View>
   );
 }
 
-function PulseDot({ color }) {
-  const opacity = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.25, duration: 500, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 500, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity]);
-  return <Animated.View style={[styles.pulseDot, { backgroundColor: color, opacity }]} />;
+function CardArtwork({ source, side = "right", opacity = 0.5, tintColor }) {
+  const [cardHeight, setCardHeight] = useState(0);
+  const artworkSize = cardHeight * 1.26;
+
+  return (
+    <View
+      style={StyleSheet.absoluteFillObject}
+      onLayout={({ nativeEvent }) => setCardHeight(nativeEvent.layout.height)}
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      {cardHeight > 0 && (
+        <Image
+          source={source}
+          // Numeric dimensions keep the artwork visible in content-sized cards.
+          style={{
+            position: "absolute",
+            width: artworkSize,
+            height: artworkSize,
+            top: -cardHeight * 0.16,
+            [side]: -artworkSize * (side === "left" ? 0.2 : 0.5),
+            opacity,
+            tintColor,
+          }}
+          resizeMode="contain"
+          accessible={false}
+        />
+      )}
+    </View>
+  );
 }
 
-function StatusTile({ icon, label, value, tone }) {
-  const t = TONE[tone] ?? TONE.muted;
+function StatusTile({ artwork, label, value, tone, bolt = false }) {
+  const { colors: Colors, isDark } = useAppPreferences();
+  const styles = useStyles();
+  const tones = tonesFor(Colors);
+  const t = tones[tone] ?? tones.muted;
+  const glowId = `statusGlow-${label.replace(/\s+/g, "")}`;
   return (
-    <View style={styles.statusCard}>
-      <View style={styles.statusTop}>
-        <Text style={styles.statusLabel}>{label}</Text>
-        <View style={styles.statusIconWrap}>
-          <Ionicons name={icon} size={14} color={Colors.textPrimary} />
+    <View style={styles.statusFrame}>
+      <View
+        style={styles.statusGlow}
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        <Svg width="100%" height="100%">
+          <Defs>
+            <RadialGradient id={glowId} cx="50%" cy="50%" rx="50%" ry="50%">
+              <Stop offset="0" stopColor="#b8b8b8" stopOpacity={0.22} />
+              <Stop offset="0.58" stopColor="#b8b8b8" stopOpacity={0.09} />
+              <Stop offset="1" stopColor="#b8b8b8" stopOpacity={0} />
+            </RadialGradient>
+          </Defs>
+          <Rect width="100%" height="100%" fill={`url(#${glowId})`} />
+        </Svg>
+      </View>
+
+      <View style={styles.statusCard}>
+        <CardArtwork
+          source={artwork}
+          side="left"
+          opacity={0.42}
+          tintColor={isDark ? undefined : Colors.textSecondary}
+        />
+        <View style={styles.statusContent}>
+          <Text style={styles.statusLabel}>{label}</Text>
+          <View style={styles.statusValueRow}>
+            {bolt ? (
+              <Svg width={14} height={14} viewBox="0 -960 960 960" fill={t.fg}>
+                <Path d="m422-232 207-248H469l29-227-185 267h139l-30 208ZM320-80l40-280H160l360-520h80l-40 320h240L400-80h-80Zm151-390Z" />
+              </Svg>
+            ) : null}
+            <Text style={[styles.statusValue, { color: t.fg }]}>{value}</Text>
+          </View>
         </View>
       </View>
-      <View style={styles.statusValueRow}>
-        <View style={[styles.statusDot, { backgroundColor: t.fg }]} />
-        <Text style={[styles.statusValue, { color: t.fg }]}>{value}</Text>
-      </View>
     </View>
   );
 }
 
-function InfoRow({ label, value, valueColor, last }) {
+function InfoRow({ label, value, valueColor, last, children }) {
+  const styles = useStyles();
   return (
     <View style={[styles.infoRow, last && { marginBottom: 0 }]}>
       <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={[styles.infoValue, valueColor && { color: valueColor }]} numberOfLines={1}>
-        {value}
-      </Text>
+      {children ?? (
+        <Text style={[styles.infoValue, valueColor && { color: valueColor }]} numberOfLines={1}>
+          {value}
+        </Text>
+      )}
     </View>
   );
 }
 
 function QuickTile({ icon, iconSet = "ion", label, sub, onPress, badge }) {
+  const { colors: Colors } = useAppPreferences();
+  const styles = useStyles();
   const Icon = iconSet === "mci" ? MaterialCommunityIcons : Ionicons;
   return (
     <TouchableOpacity style={styles.quickCard} onPress={onPress} activeOpacity={0.75}>
@@ -147,72 +205,124 @@ function QuickTile({ icon, iconSet = "ion", label, sub, onPress, badge }) {
 /* The one thing a responder opens the app to find out: am I going somewhere,
    and where. Everything about the live dispatch lives in this card. */
 function DispatchHero({ dispatch, incident, now, onDetails, onRoute }) {
+  const { colors: Colors } = useAppPreferences();
+  const styles = useStyles();
   const contained = incident?.fire_status === "contained";
-  const ds = DISPATCH_LABEL[dispatch.dispatch_status] ?? { label: dispatch.dispatch_status, tone: "muted" };
   const place = incident?.fire_location_name || incident?.fire_address || "Incident location";
   const since = elapsed(dispatch.dispatch_at, now);
   const truck = dispatch.truck;
   const role = dispatch.is_team_leader ? "Team Leader" : dispatch.is_driver ? "Driver" : "Responder";
+  const onFire = !contained;
+  const fireText = onFire && styles.heroFireText;
+  const glowColor = contained ? Colors.accentGreen : Colors.accentFire;
 
   return (
-    <View style={[styles.hero, contained ? styles.heroContained : styles.heroActive]}>
-      <View style={styles.heroTag}>
-        {contained ? (
-          <Ionicons name="checkmark-circle" size={13} color={Colors.accentGreen} />
-        ) : (
-          <PulseDot color={Colors.accentFire} />
-        )}
-        <Text style={[styles.heroTagText, { color: contained ? Colors.accentGreen : Colors.accentFire }]}>
-          {contained ? "Fire Contained" : "Emergency Active"}
-        </Text>
-        {since && <Text style={styles.heroSince}>{since}</Text>}
+    <View style={styles.heroFrame}>
+      <View
+        style={styles.heroGlow}
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        <Svg width="100%" height="100%">
+          <Defs>
+            <RadialGradient id="incidentGlow" cx="50%" cy="50%" rx="50%" ry="50%">
+              <Stop offset="0" stopColor={glowColor} stopOpacity={0.32} />
+              <Stop offset="0.58" stopColor={glowColor} stopOpacity={0.13} />
+              <Stop offset="1" stopColor={glowColor} stopOpacity={0} />
+            </RadialGradient>
+          </Defs>
+          <Rect width="100%" height="100%" fill="url(#incidentGlow)" />
+        </Svg>
       </View>
 
-      <Text style={styles.heroId}>DISP-{dispatch.dispatch_id}</Text>
-      <Text style={styles.heroPlace} numberOfLines={2}>{place}</Text>
-      {incident?.fire_address && incident.fire_address !== place ? (
-        <Text style={styles.heroAddr} numberOfLines={1}>{incident.fire_address}</Text>
-      ) : null}
-
-      <View style={styles.heroPills}>
-        {incident?.fire_severity && (
-          <Pill label={incident.fire_severity} tone={SEVERITY_TONE[incident.fire_severity] ?? "muted"} />
-        )}
-        {incident?.fire_level && <Pill label={incident.fire_level} tone="muted" />}
-        <Pill label={ds.label} tone={ds.tone} />
-      </View>
-
-      <View style={styles.heroMeta}>
-        <View style={styles.heroMetaItem}>
-          <Text style={styles.heroMetaLabel}>Dispatched</Text>
-          <Text style={styles.heroMetaValue}>{clockTime(dispatch.dispatch_at)}</Text>
+      <View style={[styles.hero, styles.heroDispatch, contained ? styles.heroContained : styles.heroActive]}>
+        <View
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <CardArtwork
+            source={require("../assets/incident-beacon-white.png")}
+            opacity={contained ? 0.12 : 0.5}
+          />
+          <Svg width="100%" height="100%" style={StyleSheet.absoluteFillObject}>
+            <Defs>
+              <LinearGradient id="incidentScrim" x1="0%" y1="0%" x2="100%" y2="0%">
+                <Stop offset="0" stopColor={contained ? Colors.bgPanel : "#7a2009"} stopOpacity={0.4} />
+                <Stop offset="0.58" stopColor={contained ? Colors.bgPanel : "#7a2009"} stopOpacity={0.22} />
+                <Stop offset="1" stopColor={contained ? Colors.bgPanel : "#7a2009"} stopOpacity={0} />
+              </LinearGradient>
+            </Defs>
+            <Rect width="100%" height="100%" fill="url(#incidentScrim)" />
+          </Svg>
         </View>
-        <View style={styles.heroMetaDivider} />
-        <View style={styles.heroMetaItem}>
-          <Text style={styles.heroMetaLabel}>Truck</Text>
-          <Text style={styles.heroMetaValue} numberOfLines={1}>{truck?.truck_platenum ?? "—"}</Text>
-        </View>
-        <View style={styles.heroMetaDivider} />
-        <View style={styles.heroMetaItem}>
-          <Text style={styles.heroMetaLabel}>Role</Text>
-          <Text style={styles.heroMetaValue} numberOfLines={1}>{role}</Text>
-        </View>
-      </View>
 
-      <View style={styles.heroActions}>
-        <TouchableOpacity style={styles.btnPrimary} onPress={onDetails} activeOpacity={0.85}>
-          <Text style={styles.btnPrimaryText}>Incident Details</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.btnSecondary} onPress={onRoute} activeOpacity={0.8}>
-          <Ionicons name="navigate" size={14} color={Colors.textPrimary} />
-          <Text style={styles.btnSecondaryText}>Route</Text>
-        </TouchableOpacity>
+        <View style={styles.heroContent}>
+          <View style={styles.heroHeading}>
+            <View style={styles.heroHeadingContent}>
+              <View style={styles.heroTag}>
+                {contained ? (
+                  <Text style={[styles.heroTagText, { color: Colors.accentGreen }]}>Fire Contained</Text>
+                ) : (
+                  <Text style={[styles.heroId, fireText]}>
+                    {incident?.fire_id != null ? `Incident #${incident.fire_id}` : `DISP-${dispatch.dispatch_id}`}
+                  </Text>
+                )}
+                {since && <Text style={[styles.heroSince, fireText]}>{since}</Text>}
+              </View>
+              {contained && (
+                <Text style={styles.heroId}>
+                  {incident?.fire_id != null ? `Incident #${incident.fire_id}` : `DISP-${dispatch.dispatch_id}`}
+                </Text>
+              )}
+              <Text style={[styles.heroPlace, fireText]}>{place}</Text>
+              {incident?.fire_address && incident.fire_address !== place ? (
+                <Text style={[styles.heroAddr, fireText]}>{incident.fire_address}</Text>
+              ) : null}
+            </View>
+          </View>
+
+          {incident?.fire_severity || incident?.fire_level ? (
+            <View style={styles.heroPills}>
+              {incident?.fire_severity && <Pill label={incident.fire_severity} outlined onAccent={onFire} />}
+              {incident?.fire_level && <Pill label={incident.fire_level} outlined onAccent={onFire} />}
+            </View>
+          ) : null}
+
+          <View style={[styles.heroMeta, onFire && styles.heroMetaActive]}>
+            <View style={styles.heroMetaItem}>
+              <Text style={[styles.heroMetaLabel, fireText]}>Dispatched</Text>
+              <Text style={[styles.heroMetaValue, fireText]}>{clockTime(dispatch.dispatch_at)}</Text>
+            </View>
+            <View style={styles.heroMetaItem}>
+              <Text style={[styles.heroMetaLabel, fireText]}>Truck</Text>
+              <Text style={[styles.heroMetaValue, fireText]} numberOfLines={2}>{truck?.truck_platenum ?? "—"}</Text>
+            </View>
+            <View style={styles.heroMetaItem}>
+              <Text style={[styles.heroMetaLabel, fireText]}>Role</Text>
+              <Text style={[styles.heroMetaValue, fireText]} numberOfLines={2}>{role}</Text>
+            </View>
+          </View>
+
+          <View style={styles.heroActions}>
+            <TouchableOpacity style={styles.btnPrimary} onPress={onDetails} activeOpacity={0.85}>
+              <Text style={[styles.btnPrimaryText, onFire && styles.heroActiveButtonText]}>Incident Details</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.btnSecondary} onPress={onRoute} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="Route">
+              <Ionicons name="navigate" size={14} color={onFire ? Colors.accentFire : '#101011'} />
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     </View>
   );
 }
 
 function StandbyHero({ station, shift }) {
+  const { colors: Colors } = useAppPreferences();
+  const styles = useStyles();
   return (
     <View style={styles.hero}>
       <View style={styles.standbyRow}>
@@ -235,7 +345,9 @@ function StandbyHero({ station, shift }) {
 }
 
 export default function HomeScreen({ navigation }) {
-  const { user, status, token, refreshStatus, unreadAlerts, deviationState } = useAuth();
+  const { colors: Colors, isDark } = useAppPreferences();
+  const styles = useStyles();
+  const { user, status, token, refreshStatus, unreadAlerts, trackingState } = useAuth();
   const dispatch = status?.dispatch ?? null;
   const incident = dispatch?.incident ?? null;
   const isTeamLeader = dispatch?.is_team_leader ?? false;
@@ -252,23 +364,21 @@ export default function HomeScreen({ navigation }) {
     return () => clearInterval(id);
   }, [dispatch]);
 
-  // Location is only reported while a dispatch is active (see
-  // useLocationTracking), so the tile says so rather than claiming "Active".
-  const tracking = !dispatch
-    ? { value: "Idle", tone: "muted" }
-    : deviationState?.isDeviated
-    ? { value: "Off Route", tone: "amber" }
-    : { value: "Live", tone: "green" };
+  const tracking = status?.tracking?.mode === 'off'
+    ? { value: "Off duty", tone: "muted" }
+    : !trackingState?.sharing
+    ? { value: trackingState?.reason === 'permission_denied' ? 'GPS denied' : 'Connecting', tone: 'amber' }
+    : { value: trackingState?.mode === 'standby' ? 'Live · 30s' : "Live", tone: "green" };
 
   const duty = dispatch
-    ? DISPATCH_LABEL[dispatch.dispatch_status] ?? { label: "Dispatched", tone: "amber" }
+    ? DISPATCH_LABEL[dispatch.personnel_status ?? dispatch.dispatch_status] ?? { label: "Dispatched", tone: "amber" }
     : { label: "Standby", tone: "blue" };
 
   const loading = status === null;
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -326,8 +436,8 @@ export default function HomeScreen({ navigation }) {
 
           {/* Status tiles */}
           <View style={styles.statusRow}>
-            <StatusTile icon="navigate" label="Tracking" value={tracking.value} tone={tracking.tone} />
-            <StatusTile icon="people" label="Duty Status" value={duty.label} tone={duty.tone} />
+            <StatusTile artwork={require("../assets/tracking-navigation-white.png")} label="Tracking" value={tracking.value} tone={tracking.tone} bolt={trackingState?.sharing && status?.tracking?.mode !== 'off'} />
+            <StatusTile artwork={require("../assets/duty-team-white.png")} label="Duty Status" value={duty.label} tone={duty.tone} />
           </View>
 
           {/* Team */}
@@ -350,7 +460,15 @@ export default function HomeScreen({ navigation }) {
                 </View>
                 <View style={styles.cardDivider} />
                 <InfoRow label="Station" value={stationName ?? "—"} />
-                <InfoRow label="Shift" value={shiftName ?? "—"} last />
+                <InfoRow label="Shift" value="—" last>
+                  {shiftName && shiftName !== "—" ? (
+                    <View style={styles.shiftChip} accessibilityLabel={shiftName}>
+                      <Text style={styles.shiftChipText} numberOfLines={1}>
+                        {shiftName.replace(/^Shift\s+/i, "")}
+                      </Text>
+                    </View>
+                  ) : null}
+                </InfoRow>
               </>
             ) : (
               <Text style={styles.emptyText}>
@@ -412,7 +530,7 @@ export default function HomeScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   root: {
     flex: 1,
     backgroundColor: Colors.bgBase,
@@ -515,6 +633,17 @@ const styles = StyleSheet.create({
   },
 
   // Hero
+  heroFrame: {
+    marginHorizontal: 12,
+    marginVertical: 4,
+  },
+  heroGlow: {
+    position: "absolute",
+    top: -44,
+    bottom: -44,
+    left: -48,
+    right: -48,
+  },
   hero: {
     marginHorizontal: 12,
     backgroundColor: Colors.bgPanel,
@@ -523,8 +652,32 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 16,
   },
+  heroDispatch: {
+    marginHorizontal: 0,
+    borderRadius: 18,
+    overflow: "hidden",
+  },
+  heroContent: {
+    zIndex: 1,
+  },
   heroActive: {
-    borderColor: Colors.badgeFire.border,
+    backgroundColor: Colors.accentFire,
+    borderColor: Colors.accentFire,
+  },
+  heroFireText: {
+    color: "#fff",
+  },
+  heroActiveButtonText: {
+    color: Colors.accentFire,
+  },
+  heroHeading: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    minHeight: 78,
+  },
+  heroHeadingContent: {
+    flex: 1,
+    minWidth: 0,
   },
   heroContained: {
     borderColor: Colors.badgeGreen.border,
@@ -540,14 +693,10 @@ const styles = StyleSheet.create({
   },
   heroTag: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     gap: 7,
-    marginBottom: 10,
-  },
-  pulseDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    marginBottom: 6,
   },
   heroTagText: {
     fontFamily: "AxiformaMedium",
@@ -569,6 +718,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   heroPlace: {
+    maxWidth: "88%",
     fontFamily: "AxiformaMedium",
     fontSize: 22,
     color: Colors.textPrimary,
@@ -576,6 +726,7 @@ const styles = StyleSheet.create({
     lineHeight: 27,
   },
   heroAddr: {
+    maxWidth: "86%",
     fontFamily: "AxiformaRegular",
     fontSize: 11.5,
     color: Colors.textSecondary,
@@ -590,22 +741,22 @@ const styles = StyleSheet.create({
   },
   heroMeta: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
+    gap: 10,
     marginTop: 14,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 12,
     borderColor: Colors.borderDim,
+    backgroundColor: Colors.bgHover,
+  },
+  heroMetaActive: {
+    borderColor: "rgba(255,255,255,0.22)",
+    backgroundColor: "rgba(66,16,4,0.16)",
   },
   heroMetaItem: {
     flex: 1,
-    paddingHorizontal: 2,
-  },
-  heroMetaDivider: {
-    width: 1,
-    alignSelf: "stretch",
-    backgroundColor: Colors.borderDim,
-    marginHorizontal: 10,
+    minWidth: 0,
   },
   heroMetaLabel: {
     fontFamily: "AxiformaRegular",
@@ -627,20 +778,15 @@ const styles = StyleSheet.create({
   },
   btnPrimary: {
     flex: 1,
-    backgroundColor: Colors.accentFire,
+    backgroundColor: "#fff",
     borderRadius: 8,
     paddingVertical: 10,
     alignItems: "center",
-    shadowColor: Colors.accentFire,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
   btnPrimaryText: {
     fontFamily: "AxiformaMedium",
     fontSize: 12.8,
-    color: "#fff",
+    color: '#101011',
     letterSpacing: -0.2,
   },
   btnSecondary: {
@@ -650,13 +796,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: Colors.bgHover,
-  },
-  btnSecondaryText: {
-    fontFamily: "AxiformaMedium",
-    fontSize: 12.8,
-    color: Colors.textPrimary,
-    letterSpacing: -0.2,
+    backgroundColor: "#fff",
   },
   standbyRow: {
     flexDirection: "row",
@@ -691,11 +831,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
+  pillOutline: {
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.32)",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
   pillText: {
     fontFamily: "AxiformaMedium",
     fontSize: 8.8,
     letterSpacing: -0.5,
     textTransform: "uppercase",
+  },
+  pillLightOutline: {
+    borderColor: Colors.border,
+    backgroundColor: Colors.bgHover,
   },
 
   // Status tiles
@@ -705,46 +856,54 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     marginTop: 10,
   },
+  statusFrame: {
+    flex: 1,
+  },
+  statusGlow: {
+    position: "absolute",
+    top: -24,
+    bottom: -24,
+    left: -24,
+    right: -24,
+  },
   statusCard: {
     flex: 1,
+    minHeight: 72,
+    backgroundColor: Colors.bgPanel,
     borderWidth: 0.5,
     borderColor: Colors.borderDim,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 13,
-    gap: 10,
+    borderRadius: 12,
+    overflow: "hidden",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  statusTop: {
-    flexDirection: "row",
+  statusContent: {
+    flex: 1,
+    zIndex: 1,
     alignItems: "flex-end",
     justifyContent: "space-between",
+    gap: 4,
   },
   statusLabel: {
     fontFamily: "AxiformaMedium",
     fontSize: 10.8,
     letterSpacing: -0.2,
     color: Colors.textSecondary,
-  },
-  statusIconWrap: {
-    padding: 6,
-    backgroundColor: Colors.bgHover,
-    borderRadius: 8,
+    textAlign: "right",
   },
   statusValueRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "flex-end",
     gap: 6,
   },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
   statusValue: {
+    flexShrink: 1,
     fontFamily: "AxiformaMedium",
-    fontSize: 14,
+    fontSize: 18,
+    lineHeight: 24,
     letterSpacing: -0.5,
+    textAlign: "right",
   },
 
   // Team card
@@ -808,6 +967,22 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     letterSpacing: -0.2,
   },
+  shiftChip: {
+    minWidth: 24,
+    maxWidth: "70%",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: Colors.bgHover,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shiftChipText: {
+    fontFamily: "ShareTechMono_400Regular",
+    fontSize: 10.5,
+    lineHeight: 16,
+    color: Colors.textPrimary,
+  },
   emptyText: {
     fontFamily: "AxiformaRegular",
     fontSize: 11.5,
@@ -868,8 +1043,8 @@ const styles = StyleSheet.create({
   quickSub: {
     fontFamily: "AxiformaRegular",
     fontSize: 10.5,
-    color: Colors.textSecondary,
+    color: `${Colors.textSecondary}99`,
     letterSpacing: -0.2,
     marginTop: 2,
   },
-});
+}));

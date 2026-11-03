@@ -4,7 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import AlertItem from '../components/AlertItem';
-import Colors from '../constants/colors';
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 import { useAuth } from '../context/AuthContext';
 
 // "4m ago" for the first hour — what matters mid-dispatch — then the clock
@@ -18,6 +19,8 @@ function relTime(alert, now) {
 }
 
 export default function AlertsScreen({ navigation }) {
+  const { colors: Colors, isDark } = useAppPreferences();
+  const styles = useStyles();
   const { alerts, unreadAlerts, markAlertsRead, clearAlerts } = useAuth();
   // Snapshot which items were new when the screen opened, so they keep their
   // highlight while being read even though they're marked read immediately.
@@ -63,7 +66,7 @@ export default function AlertsScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -123,7 +126,7 @@ export default function AlertsScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   root: {
     flex: 1,
     backgroundColor: Colors.bgBase,
@@ -259,4 +262,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: -0.2,
   },
-});
+}));

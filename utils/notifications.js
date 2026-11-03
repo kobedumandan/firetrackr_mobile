@@ -10,33 +10,61 @@ export const CHANNEL_DISPATCH = 'dispatch';
 export const CHANNEL_SILENT   = 'dispatch-silent';
 
 const PREFS_KEY = 'bfp_push_prefs';
+const PUSH_TOKEN_KEY = 'bfp_last_push_token';
 export const DEFAULT_PUSH_PREFS = { enabled: true, sound: true };
+let currentPrefs = DEFAULT_PUSH_PREFS;
+let preferencesLoaded = false;
+let preferenceWrites = Promise.resolve();
 
 // Show alerts even while the app is open — a dispatch must never be swallowed
 // just because the responder happened to be looking at the Route tab.
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async () => {
+    const prefs = await readPushPrefs();
+    return {
+      shouldShowAlert: prefs.enabled,
+      shouldPlaySound: prefs.enabled && prefs.sound,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 /** Why push isn't available, in words a responder can pass on to an admin. */
 export class PushUnavailableError extends Error {}
 
 export async function readPushPrefs() {
+  if (preferencesLoaded) return currentPrefs;
   try {
     const raw = await SecureStore.getItemAsync(PREFS_KEY);
-    return { ...DEFAULT_PUSH_PREFS, ...(raw ? JSON.parse(raw) : {}) };
+    const saved = raw ? JSON.parse(raw) : {};
+    if (preferencesLoaded) return currentPrefs;
+    currentPrefs = {
+      enabled: typeof saved?.enabled === 'boolean' ? saved.enabled : true,
+      sound: typeof saved?.sound === 'boolean' ? saved.sound : true,
+    };
+    preferencesLoaded = true;
+    return currentPrefs;
   } catch {
-    return DEFAULT_PUSH_PREFS;
+    preferencesLoaded = true;
+    return currentPrefs;
   }
 }
 
 export async function savePushPrefs(prefs) {
-  try { await SecureStore.setItemAsync(PREFS_KEY, JSON.stringify(prefs)); }
-  catch { /* non-fatal — falls back to defaults next launch */ }
+  preferencesLoaded = true;
+  currentPrefs = prefs;
+  preferenceWrites = preferenceWrites.catch(() => {}).then(() =>
+    SecureStore.setItemAsync(PREFS_KEY, JSON.stringify(prefs))
+  );
+  try { await preferenceWrites; } catch { /* Preserve the in-memory preference. */ }
+}
+
+export async function readLastPushToken() {
+  try { return await SecureStore.getItemAsync(PUSH_TOKEN_KEY); } catch { return null; }
+}
+
+export async function rememberPushToken(pushToken) {
+  try { await SecureStore.setItemAsync(PUSH_TOKEN_KEY, pushToken); } catch { /* Non-fatal. */ }
 }
 
 // Android 8+ decides sound/importance per channel, and a channel's settings are
@@ -67,6 +95,11 @@ export async function getExpoPushToken() {
   if (!Device.isDevice) {
     throw new PushUnavailableError('Push alerts need a physical phone, not an emulator.');
   }
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+  if (!projectId) {
+    throw new PushUnavailableError('Dispatch alerts are not configured for this build. Ask your app administrator to finish notification setup.');
+  }
   await ensureChannels();
 
   let { status } = await Notifications.getPermissionsAsync();
@@ -77,11 +110,6 @@ export async function getExpoPushToken() {
     throw new PushUnavailableError('Notifications are blocked. Allow them in the phone settings.');
   }
 
-  const projectId =
-    Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-  if (!projectId) {
-    throw new PushUnavailableError('Push is not set up for this build yet (no EAS project id).');
-  }
   try {
     const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
     return data;
@@ -107,15 +135,13 @@ export async function registerPushToken(authToken, pushToken, prefs) {
   }
 }
 
-// Best-effort: signing out or switching push off must still work offline.
 export async function unregisterPushToken(authToken, pushToken) {
-  try {
-    await fetch(`${BASE_URL}/api/mobile/push-token/unregister`, {
-      method: 'POST',
-      headers: authHeaders(authToken),
-      body: JSON.stringify({ token: pushToken }),
-    });
-  } catch { /* non-fatal */ }
+  const response = await fetch(`${BASE_URL}/api/mobile/push-token/unregister`, {
+    method: 'POST',
+    headers: authHeaders(authToken),
+    body: JSON.stringify({ token: pushToken }),
+  });
+  if (!response.ok) throw new Error('Could not stop remote alerts. Reconnect and retry notifications.');
 }
 
 export async function sendTestPush(authToken) {

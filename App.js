@@ -3,7 +3,7 @@ import React from 'react';
 // OS can run it even when the app was relaunched headless.
 import './tasks/locationTask';
 import { View, ActivityIndicator } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -27,6 +27,7 @@ import BottomNav      from './components/BottomNav';
 import Colors         from './constants/colors';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { navigationRef } from './utils/navigation';
+import { AppPreferencesProvider, useAppPreferences } from './context/AppPreferencesContext';
 
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
@@ -45,6 +46,7 @@ function MainTabs() {
 }
 
 function RootNavigator() {
+  const { colors: Colors } = useAppPreferences();
   const { isAuthenticated, restoring } = useAuth();
   if (restoring) {
     return (
@@ -81,6 +83,23 @@ function RootNavigator() {
   );
 }
 
+function AppNavigation() {
+  const { colors, isDark } = useAppPreferences();
+  const baseTheme = isDark ? DarkTheme : DefaultTheme;
+  const theme = {
+    ...baseTheme,
+    colors: {
+      ...baseTheme.colors, primary: colors.accentFire, background: colors.bgBase,
+      card: colors.bgPanel, text: colors.textPrimary, border: colors.border,
+    },
+  };
+  return (
+    <NavigationContainer ref={navigationRef} theme={theme}>
+      <RootNavigator />
+    </NavigationContainer>
+  );
+}
+
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
     BarlowCondensed_400Regular,
@@ -105,11 +124,11 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <NavigationContainer ref={navigationRef}>
-          <RootNavigator />
-        </NavigationContainer>
-      </AuthProvider>
+      <AppPreferencesProvider>
+        <AuthProvider>
+          <AppNavigation />
+        </AuthProvider>
+      </AppPreferencesProvider>
     </SafeAreaProvider>
   );
 }

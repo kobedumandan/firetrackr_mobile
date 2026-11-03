@@ -7,12 +7,13 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import Colors from "../constants/colors";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+
+import { createUseStyles, useAppPreferences } from '../context/AppPreferencesContext';
 
 /**
- * Reusable confirmation bottom-sheet. Matches the dark theme of
- * IncidentDetailsModal. Drive it with `visible` + `onCancel`/`onConfirm`.
+ * Shared floating confirmation, styled after the web sign-out dialog.
+ * Drive it with `visible` + `onCancel`/`onConfirm`.
  *
  * `tone` picks the confirm button colour:
  *   "danger"  → fire red  (default; destructive/irreversible)
@@ -20,12 +21,15 @@ import Colors from "../constants/colors";
  *   "primary" → green
  *
  * Pass `busy` to show a spinner and lock the buttons while the action runs.
+ * Icon badges always use the fire accent; `tone` controls the confirm button.
  */
 export default function ConfirmModal({
   visible,
+  eyebrow = "CONFIRM",
   title,
   message,
   icon = "alert-circle",
+  iconSet = "ion",
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   tone = "danger",
@@ -33,7 +37,11 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
 }) {
-  const pal = TONES[tone] ?? TONES.danger;
+  const { colors: Colors } = useAppPreferences();
+  const styles = useStyles();
+  const tones = tonesFor(Colors);
+  const pal = tones[tone] ?? tones.danger;
+  const Icon = iconSet === "mci" ? MaterialCommunityIcons : Ionicons;
 
   return (
     <Modal
@@ -50,16 +58,23 @@ export default function ConfirmModal({
           onPress={busy ? undefined : onCancel}
         />
         <View style={styles.card}>
-          <View style={[styles.iconWrap, { backgroundColor: pal.dim, borderColor: pal.border }]}>
-            <Ionicons name={icon} size={22} color={pal.color} />
+          <View style={styles.header}>
+            <View style={styles.iconHalo}>
+              <View style={styles.iconWrap}>
+                <Icon name={icon} size={20} color={Colors.accentFire} accessible={false} />
+              </View>
+            </View>
+            <View style={styles.headerText}>
+              {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
+              {title ? <Text style={styles.title}>{title}</Text> : null}
+            </View>
           </View>
 
-          {title ? <Text style={styles.title}>{title}</Text> : null}
           {message ? <Text style={styles.message}>{message}</Text> : null}
 
           <View style={styles.actions}>
             <TouchableOpacity
-              style={[styles.btn, styles.cancelBtn]}
+              style={[styles.btn, styles.cancelBtn, busy && styles.btnDisabled]}
               onPress={onCancel}
               activeOpacity={0.85}
               disabled={busy}
@@ -67,7 +82,7 @@ export default function ConfirmModal({
               <Text style={styles.cancelText}>{cancelLabel}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: pal.color }]}
+              style={[styles.btn, { backgroundColor: pal.color }, busy && styles.btnDisabled]}
               onPress={onConfirm}
               activeOpacity={0.85}
               disabled={busy}
@@ -85,13 +100,13 @@ export default function ConfirmModal({
   );
 }
 
-const TONES = {
-  danger:  { color: Colors.accentFire,  dim: Colors.accentFireDim,  border: Colors.badgeFire.border },
-  warning: { color: Colors.accentAmber, dim: Colors.accentAmberDim, border: Colors.badgeAmber.border },
-  primary: { color: Colors.accentGreen, dim: Colors.accentGreenDim, border: Colors.badgeGreen.border },
-};
+const tonesFor = (Colors) => ({
+  danger:  { color: Colors.accentFire },
+  warning: { color: Colors.accentAmber },
+  primary: { color: Colors.accentGreen },
+});
 
-const styles = StyleSheet.create({
+const useStyles = createUseStyles((Colors) => ({
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.8)",
@@ -104,73 +119,107 @@ const styles = StyleSheet.create({
   },
   card: {
     width: "100%",
-    maxWidth: 360,
-    backgroundColor: Colors.bgPanel,
-    borderRadius: 18,
+    maxWidth: 420,
+    backgroundColor: Colors.pageDefaultBase,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.border,
-    paddingHorizontal: 22,
-    paddingTop: 22,
+    paddingHorizontal: 20,
+    paddingTop: 20,
     paddingBottom: 18,
-    alignItems: "center",
   },
-  iconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1,
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  iconHalo: {
+    width: 52,
+    height: 52,
+    borderRadius: 17,
+    backgroundColor: "rgba(255,77,26,0.06)",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 14,
+  },
+  iconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: Colors.accentFireDim,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  eyebrow: {
+    fontFamily: "AxiformaMedium",
+    fontSize: 9.8,
+    lineHeight: 14,
+    color: Colors.accentFire,
+    letterSpacing: -0.1,
+    textTransform: "uppercase",
+    marginBottom: 2,
   },
   title: {
     fontFamily: "AxiformaMedium",
     fontSize: 16,
+    lineHeight: 22,
     color: Colors.textPrimary,
-    letterSpacing: -0.6,
-    textAlign: "center",
-    marginBottom: 6,
+    letterSpacing: -0.3,
+    textAlign: "left",
   },
   message: {
     fontFamily: "AxiformaRegular",
-    fontSize: 12.5,
+    fontSize: 11.8,
     lineHeight: 18,
     color: Colors.textSecondary,
     letterSpacing: -0.2,
-    textAlign: "center",
-    marginBottom: 20,
+    textAlign: "left",
+    marginTop: 14,
   },
   actions: {
     flexDirection: "row",
-    gap: 10,
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: 6,
     width: "100%",
+    marginTop: 18,
   },
   btn: {
-    flex: 1,
+    flexShrink: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
-    borderRadius: 10,
-    minHeight: 26,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 4,
+    minWidth: 78,
+    minHeight: 36,
+  },
+  btnDisabled: {
+    opacity: 0.6,
   },
   cancelBtn: {
     backgroundColor: Colors.bgHover,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.borderDim,
   },
   cancelText: {
     fontFamily: "AxiformaMedium",
-    fontSize: 11,
+    fontSize: 9.8,
+    lineHeight: 14,
     color: Colors.textPrimary,
-    letterSpacing: -0.3,
+    letterSpacing: -0.1,
     textTransform: "uppercase",
   },
   confirmText: {
     fontFamily: "AxiformaMedium",
-    fontSize: 11,
+    fontSize: 9.8,
+    lineHeight: 14,
     color: "#fff",
-    letterSpacing: -0.3,
+    letterSpacing: -0.1,
     textTransform: "uppercase",
   },
-});
+}));
